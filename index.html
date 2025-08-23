@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-<title>도트 경마 v4.4 — 자동 편성/배당 상세/실황 + 리얼 사운드 + Firebase 동기화</title>
+<title>도트 경마 v4.5 — 실황/거리스케일/날씨/타입 + 자동편성 + 리얼 사운드 + Firebase</title>
 <style>
   :root { --bg:#0b0e16; --panel:#0f1424; --line:#1f2940; --text:#c8d0ff; --title:#ffffff; --accent:#6C5CE7; --good:#9df7c7; --warn:#ffd26e; --bad:#ff7a9e; }
   html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
@@ -39,11 +39,14 @@
   .modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,20,0.55); z-index:9999; }
   .modal .box { width:min(520px, 92vw); background:#0f1424; border:1px solid #1f2940; border-radius:12px; padding:14px; }
   .modal .row { margin-top:8px; }
+
+  /* 말번호 입력 하이라이트 */
+  .hl { border-color:#ff6b6b !important; box-shadow:0 0 0 2px rgba(255,107,107,.25); }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>도트 경마 v4.4</h1>
+  <h1>도트 경마 v4.5</h1>
 
   <div class="grid">
     <div class="panel">
@@ -71,7 +74,7 @@
         <span id="authHint" class="small right" style="opacity:.8;"></span>
       </div>
 
-      <div class="hint">출발 전 게이트 대기 → 출발 총성/발굽 → 결승 환호, 실황 텍스트로 중계도 나와요!</div>
+      <div class="hint">실황 중계 강화: “현재 1번 1위, 3번 2위...” / 골인 멘트: “골인! 1번 1등, 2번 2등, 3번 3등” 표시!</div>
     </div>
 
     <div class="panel">
@@ -111,7 +114,7 @@
         <input id="amount" type="number" min="100" step="100" value="1000" />
         <button id="btnAdd">베팅 추가</button>
       </div>
-      <div class="hint">단/연: 말1 · 복/쌍/복연: 말1,2 · 삼복/삼쌍: 말1~3</div>
+      <div class="hint">베팅 타입별로 필요한 말 번호 칸이 빨간색으로 하이라이트돼요.</div>
 
       <div id="tickets"></div>
     </div>
@@ -147,7 +150,7 @@
         <span id="dailyHint" class="small" style="opacity:.85;"></span>
       </div>
       <div class="row" style="gap:6px;">
-        <input id="couponInput" type="text" placeholder="쿠폰 코드 입력" />
+        <input id="couponInput" type="text" placeholder="쿠폰 코드 입력(예: TEST10K)" />
         <button id="btnCoupon" class="ghost">쿠폰 사용</button>
         <span id="couponHint" class="small" style="opacity:.85;"></span>
       </div>
@@ -254,6 +257,15 @@ function startCrowd(level=0.2){ if(!soundEnabled||crowdSrc||!bufCrowd) return; c
 function fadeCrowd(level=0.3,sec=0.6){ if(!crowdGain) return; const ctx=getCtx(); if(!ctx) return; const now=ctx.currentTime; crowdGain.gain.cancelScheduledValues(now); crowdGain.gain.setValueAtTime(Math.max(0.0001,crowdGain.gain.value),now); crowdGain.gain.exponentialRampToValueAtTime(Math.max(0.0001,level),now+sec); }
 function stopCrowd(){ if(!crowdSrc||!crowdGain) return; try{ const ctx=getCtx(); const now=ctx.currentTime; crowdGain.gain.cancelScheduledValues(now); crowdGain.gain.exponentialRampToValueAtTime(0.0001,now+0.6); crowdSrc.stop(now+0.7);}catch(_){} crowdSrc=null; crowdGain=null; }
 
+/* ===== 날씨 ===== */
+let weather = { kind:'맑음', icon:'☀️', wet:false, snow:false };
+function rollWeather(){
+  const r=Math.random();
+  if (r<0.15) return {kind:'비', icon:'🌧️', wet:true, snow:false};
+  if (r<0.22) return {kind:'눈', icon:'❄️', wet:false, snow:true};
+  return {kind:'맑음', icon:'☀️', wet:false, snow:false};
+}
+
 /* ===== 게임 상태 ===== */
 const namesA=['은하','폭풍','달빛','천둥','유니','블레이즈','다크','초신성','스텔라','라이트','제트','린드'];
 const namesB=['스텝','런','윈드','블리츠','애로우','하모니','웨이브','스파크','피닉스','레인','헤일로','스피릿'];
@@ -267,8 +279,7 @@ let running=false, paradeTimer=0, finishedOrder=[], time=0;
 let raceMeters=1200; const lapMeters=1600; let startAng=0;
 let nextRaceTimer = 0;       // 인터미션 ms 카운트
 let intermissionHint = '';   // HUD 표기
-
-const FIXED=1000/60; let last=performance.now(), acc=0;
+let lastCastTick = 0;        // 실시간 순위 멘트 주기
 
 /* ===== 실황 중계 플래그 ===== */
 let castFlags = { q1:false, q2:false, q3:false };
@@ -301,6 +312,23 @@ function handleWallet(delta){
 /* ===== 초기화 ===== */
 renderHistory();
 newRace();
+
+/* ===== 베팅 말번호 하이라이트 ===== */
+const betTypeEl = document.getElementById('betType');
+function refreshPickHighlight(){
+  [pickA, pickB, pickC].forEach(el => el.classList.remove('hl'));
+  const t = betTypeEl.value;
+  if (t==='WIN' || t==='PLACE') pickA.classList.add('hl');
+  else if (t==='QUINELLA' || t==='EXACTA' || t==='PLACEQ') { pickA.classList.add('hl'); pickB.classList.add('hl'); }
+  else if (t==='TRIO' || t==='TRIFECTA') { pickA.classList.add('hl'); pickB.classList.add('hl'); pickC.classList.add('hl'); }
+}
+betTypeEl.addEventListener('change', refreshPickHighlight);
+['input','change'].forEach(ev=>{
+  pickA.addEventListener(ev, ()=> pickA.classList.toggle('hl', !!pickA.value));
+  pickB.addEventListener(ev, ()=> pickB.classList.toggle('hl', !!pickB.value));
+  pickC.addEventListener(ev, ()=> pickC.classList.toggle('hl', !!pickC.value));
+});
+refreshPickHighlight();
 
 /* ===== 입력 ===== */
 btnAdd.onclick=()=>{
@@ -339,26 +367,40 @@ btnCloseCharge.onclick=()=>{ chargeModal.style.display='none'; };
 /* ===== 경주 흐름 ===== */
 function newRace(){
   phase='betting'; phaseText.textContent='베팅 오픈'; countdown=30; countdownEl.textContent=countdown;
-  running=false; paradeTimer=0; finishedOrder.length=0; time=0;
+  running=false; paradeTimer=0; finishedOrder.length=0; time=0; lastCastTick=0;
   resultEl.textContent=''; payoutsEl.innerHTML=''; commentaryEl.innerHTML='';
   userTickets=[]; rebuildTickets();
   stopGallop(); stopCrowd();
 
+  // 날씨
+  weather = rollWeather();
+
   // 실황 플래그 초기화
   castFlags = { q1:false, q2:false, q3:false };
   lastLeader = null;
+  addCast(`오늘 날씨는 ${weather.icon} ${weather.kind} 입니다.`);
 
   const cand=[800,1000,1100,1200,1400,1500,1600,1800,2000];
   raceMeters = choice(cand); raceMetersEl.textContent=raceMeters;
 
   const N=rint(8,12);
+  const types = ['선행','선입','추입','자유'];
+  function pickType(){
+    const r = Math.random();
+    if (r < 0.30) return '선행';
+    if (r < 0.65) return '선입';
+    if (r < 0.90) return '추입';
+    return '자유';
+  }
+
   roster = Array.from({length:N}, (_,i)=>{
     const speed=rint(60,99), stamina=rint(55,95), burst=rint(50,98), jockeySkill=rint(60,98);
     const horseCond=rand(0.88,1.12), jockeyCond=rand(0.90,1.10);
     const name=choice(namesA)+choice(namesB), jockey=choice(jockeyA)+choice(jockeyB);
     const rating=Math.round(speed*0.5 + stamina*0.3 + burst*0.15 + jockeySkill*0.2);
+    const type = pickType();
     return { no:i+1, color:COLORS[i%COLORS.length], name, jockey, speed,stamina,burst,jockeySkill,rating,
-             horseCond,jockeyCond, dist:0, finished:false, finishTime:null, stumble:0 };
+             horseCond,jockeyCond, dist:0, finished:false, finishTime:null, stumble:0, type };
   });
   fieldSizeEl.textContent=roster.length;
 
@@ -393,7 +435,7 @@ function finishRace(){
 
   const pay=computePayouts(order);
   showPayouts(pay, order);
-  renderPayoutDetails(pay, order); // 상세 표
+  renderPayoutDetails(pay, order);
 
   const totalBet=userTickets.reduce((s,t)=>s+t.amount,0);
   let totalReturn=0; const lines=[];
@@ -411,9 +453,11 @@ function finishRace(){
   localStorage.setItem('history', JSON.stringify(history));
   renderHistory();
 
-  addCast('결승선 통과! 결과가 확정되었습니다.');
+  // 골인 멘트
+  const top3 = order.slice(0,3).map(i=>roster[i].no);
+  addCast(`골인! ${top3[0]}번 1등, ${top3[1]}번 2등, ${top3[2]}번 3등입니다!`);
 
-  // 인터미션(60초) 진입 → 자동 다음 경주
+  // 인터미션(60초) → 자동 다음 경주
   phase = 'intermission';
   phaseText.textContent = '인터미션';
   nextRaceTimer = 60 * 1000; // 60초
@@ -424,10 +468,10 @@ function finishRace(){
 requestAnimationFrame(loop);
 function loop(ts){
   let delta=ts-last; last=ts; if(delta>250) delta=250;
-  acc+=delta; while(acc>=FIXED){ update(); acc-=FIXED; }
+  acc+=delta; while(acc>=1000/60){ update(1000/60); acc-=1000/60; }
   draw(); requestAnimationFrame(loop);
 }
-function update(){
+function update(FIXED){
   if (phase==='betting'||phase==='closing'){
     aiFlowTimer++;
     if (aiFlowTimer%60===0){
@@ -438,7 +482,7 @@ function update(){
     }
   }
 
-  // 인터미션: 60초 카운트다운 후 자동 편성
+  // 인터미션
   if (phase==='intermission'){
     nextRaceTimer -= FIXED;
     if (nextRaceTimer < 0) nextRaceTimer = 0;
@@ -457,27 +501,51 @@ function update(){
   if (!running) return;
 
   time++;
+
   // 이동/물리
   roster.forEach((r)=>{
     if (r.finished) return;
-    const base=0.9 + r.speed/120;
-    const cond=r.horseCond*r.jockeyCond;
+
+    // 거리 스케일(1200m 기준): 짧으면 빠르게, 길면 느리게
+    const distScale = clamp(1200 / raceMeters, 0.6, 1.4);
+
     const prog=r.dist/raceMeters;
-    const fatigue=clamp(1 - (prog*(1.2 - r.stamina/100)), 0.70, 1.03);
-    const kick=(prog>0.82)?(1 + (r.burst/100)*0.38):1;
+    // 타입 가중치
+    let typeMul=1;
+    if (r.type==='선행') typeMul *= (prog<0.5?1.06:0.96);
+    else if (r.type==='선입') typeMul *= 1.02;
+    else if (r.type==='추입') typeMul *= (prog<0.6?0.96:1.08);
+
+    const base=0.9 + r.speed/120;
+    let cond=r.horseCond*r.jockeyCond;
+    let fatigue=clamp(1 - (prog*(1.2 - r.stamina/100)), 0.70, 1.03);
+    let kick=(prog>0.82)?(1 + (r.burst/100)*0.38):1;
     const jitter=rand(0.985,1.015);
 
+    // 날씨 보정(비/눈)
+    if (weather.wet){ fatigue *= 0.98; kick *= 0.98; }
+    if (weather.snow){ cond *= 0.98; }
+
+    // 젖은 트랙 적성(대략): 체력+숙련 평균치로 +3% 이내 보정
+    if (weather.wet){
+      const wetTalent = (r.stamina + r.jockeySkill)/200; // 0~1
+      cond *= (0.98 + wetTalent*0.03);
+    }
+
+    // 실수 이벤트
     if (r.stumble<=0 && Math.random()<0.0117) r.stumble=rint(30,70);
     const stumbleMul=(r.stumble>0)?0.68:1;
     if (r.stumble>0) r.stumble--;
 
+    // 코너 감속
     const theta=angleFromDist(r.dist);
-    let cornerMul=1.0;
-    const a=Math.abs(Math.sin(theta));
-    cornerMul *= 0.96 + 0.04*(1-a);
+    let cornerMul=1.0; cornerMul *= 0.96 + 0.04*(1-Math.abs(Math.sin(theta)));
 
-    // 오타 수정: 모두 곱셈
-    let v=base*cond*fatigue*kick*jitter*stumbleMul*cornerMul;
+    // 최종 속도(오타 수정: 전부 곱셈)
+    let v=base*cond*fatigue*kick*jitter*stumbleMul*cornerMul*typeMul;
+    // 거리 스케일 반영
+    v *= 0.9 + distScale*0.2;
+
     r.dist += v;
 
     if (r.dist>=raceMeters){
@@ -486,17 +554,25 @@ function update(){
     }
   });
 
-  // 실황: 선두/구간/실수
+  // 실황: 선두/구간/실수/실시간 순위 멘트
   const orderNow = [...roster].map((r,idx)=>({idx,dist:r.dist})).sort((a,b)=>b.dist-a.dist).map(o=>o.idx);
   const leader = orderNow[0];
   if (lastLeader === null) lastLeader = leader;
   const leadDist = roster[leader].dist;
 
   if (!castFlags.q1 && leadDist >= raceMeters*0.25){ castFlags.q1=true; addCast('1/4 구간 통과! 선두 그룹 빠르게 전개!'); }
-  if (!castFlags.q2 && leadDist >= raceMeters*0.50){ castFlags.q2=true; addCast('중반 진입! 선두권 밀착, 직선주로 승부 준비!'); }
+  if (!castFlags.q2 && leadDist >= raceMeters*0.50){ castFlags.q2=true; addCast('중반 진입! 선두권 촘촘, 직선 승부 준비!'); }
   if (!castFlags.q3 && leadDist >= raceMeters*0.75){ castFlags.q3=true; addCast('3/4 지점! 스퍼트 준비, 결승선 향해 진입!'); }
   if (leader !== lastLeader){ addCast(`선두 바뀝니다! #${roster[leader].no} ${roster[leader].name} 앞으로!`); lastLeader=leader; }
   for (const r of roster){ if (r.stumble===1){ addCast(`아! #${r.no} ${r.name} 약간의 실수! 속도 떨어집니다!`); break; } }
+
+  // 1초 간격 실시간 순위 멘트
+  lastCastTick += FIXED;
+  if (lastCastTick >= 1000) {
+    lastCastTick = 0;
+    const top = orderNow.slice(0,3).map(i=>roster[i].no);
+    if (top.length>=2) addCast(`현재 ${top[0]}번 1위, ${top[1]}번 2위${top[2]?`, ${top[2]}번 3위`:''}!`);
+  }
 
   if (finishedOrder.length===roster.length){ finishRace(); }
 }
@@ -795,6 +871,8 @@ function draw(){
   // HUD
   smallText(phase==='parade'?'출발 준비':phase==='running'?'RACE RUNNING':phase==='betting'?'BETTING OPEN':phase==='closing'?'CLOSING':phase==='intermission'?'INTERMISSION':'RESULT', 6, 8, '#c8d0ff');
   if (phase==='intermission') smallText(intermissionHint, 6, 16, '#9df7c7');
+  // 날씨 아이콘
+  smallText(`${weather.icon}`, W-16, 16, '#c8d0ff');
   smallText(`${raceMeters}m`, W-36, 8, '#ffd26e');
 
   ctx.restore();
@@ -878,15 +956,19 @@ function renderHistory(){
     </div>`;
   }).join('');
 }
+
+/* ===== 유틸 ===== */
+function map(v,inMin,inMax,outMin,outMax){ return outMin + (v-inMin)*(outMax-outMin)/(inMax-inMin); }
+
 })();
 </script>
 
-<!-- Firebase 모듈(로그인/지갑 동기화 + 충전하기) -->
+<!-- Firebase 모듈(로그인/자동 영구 로그인 + 로그아웃 확실화 + 충전하기) -->
 <script type="module">
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js';
   import {
     getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
-    signInWithEmailAndPassword, signOut
+    signInWithEmailAndPassword, signOut, setPersistence, browserLocalPersistence
   } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js';
   import {
     getFirestore, doc, getDoc, setDoc, updateDoc,
@@ -906,8 +988,9 @@ function renderHistory(){
 
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
+  await setPersistence(auth, browserLocalPersistence); // 영구 로그인 유지
   const db   = getFirestore(app);
-  const functions = getFunctions(app); // 리전을 바꿨다면 getFunctions(app, 'asia-northeast3') 처럼 지정
+  const functions = getFunctions(app); // 리전을 변경했다면 getFunctions(app, 'asia-northeast3')
   try { await enableIndexedDbPersistence(db); } catch(_) {}
 
   // DOM
@@ -957,8 +1040,8 @@ function renderHistory(){
   };
 
   // 서버 함수
-  const callDaily  = httpsCallable(functions, 'walletTopupDaily');
-  const callCoupon = httpsCallable(functions, 'walletRedeemCoupon');
+  const callDaily  = httpsCallable(functions, 'walletTopupDaily');   // 하루 1회 10,000원
+  const callCoupon = httpsCallable(functions, 'walletRedeemCoupon'); // 쿠폰 {amount} 지급
 
   // 로그인 상태 감시 + 지갑 실시간 구독
   let unsubWallet = null;
@@ -1004,7 +1087,7 @@ function renderHistory(){
     }
   });
 
-  // 출석 보너스: 서버 우선
+  // 출석 보너스: 서버 우선(10,000원)
   btnDaily.onclick = async () => {
     if (!uid) return alert('로그인해줘!');
     try {
@@ -1013,13 +1096,13 @@ function renderHistory(){
         dailyHint.textContent = '지급 완료! 잠시 후 잔액이 반영돼요.';
       }
     } catch (e) {
-      // 폴백 제거를 원하면 아래 3줄을 삭제하고 alert만 남겨
+      // 필요 시 테스트용 폴백(운영에선 제거 권장)
       try { await claimDailyClient(); }
       catch (e2){ alert(e.message || e2.message || '보너스 수령 실패'); }
     }
   };
 
-  // 쿠폰 사용: 서버 필수
+  // 쿠폰 사용(예: coupons/TEST10K {amount:10000,active:true})
   btnCoupon.onclick = async () => {
     if (!uid) return alert('로그인해줘!');
     const code = (couponInput.value||'').trim();
@@ -1035,6 +1118,15 @@ function renderHistory(){
     } catch (e) {
       alert(e.message || '쿠폰 실패');
     }
+  };
+
+  // 로그아웃: 즉시 반영(영구 로그인 해제 + 새로고침)
+  btnLogout.onclick = async () => {
+    try {
+      await signOut(auth);
+      localStorage.removeItem('wallet');
+      location.replace(location.pathname + '?v=logout');
+    } catch(_) {}
   };
 
   // 클라이언트 폴백(테스트용): 10,000원
