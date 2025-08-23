@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-<title>도트 경마 v4.3 — 리얼 사운드 + Firebase 지갑 동기화 + 충전하기</title>
+<title>도트 경마 v4.4 — 자동 편성/배당 상세/실황 + 리얼 사운드 + Firebase 동기화</title>
 <style>
   :root { --bg:#0b0e16; --panel:#0f1424; --line:#1f2940; --text:#c8d0ff; --title:#ffffff; --accent:#6C5CE7; --good:#9df7c7; --warn:#ffd26e; --bad:#ff7a9e; }
   html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
@@ -18,7 +18,7 @@
   .money{font-weight:700;color:var(--warn)}
   button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 12px;cursor:pointer}
   button.secondary{background:#1e2a53;color:#dbe1ff}
-  button.ghost{background:transparent;border:1px solid var(--line);color:var(--text)}
+  button.ghost{background:transparent;border:1px solid var(--line);color:#dbe1ff}
   button:disabled{opacity:.6;cursor:not-allowed}
   select,input[type=number],input[type=email],input[type=password],input[type=text]{padding:8px 10px;border-radius:8px;border:1px solid #2a3557;background:#0d1330;color:#dbe1ff}
   table{width:100%;border-collapse:collapse;font-size:12px}
@@ -29,7 +29,7 @@
   .ticket{background:#0e1531;border:1px solid var(--line);padding:8px;border-radius:8px;margin:6px 0;font-size:12px}
   .small{font-size:12px}
   .right{text-align:right}
-  .hint{font-size:12px;opacity:.75;margin-top:6px}
+  .hint{font-size:12px;opacity:.75;margin-top:8px}
   .odds{font-variant-numeric:tabular-nums}
   .hr{height:1px;background:var(--line);margin:8px 0}
   .tag{display:inline-block;padding:2px 6px;border-radius:6px;border:1px solid var(--line);background:#141a33}
@@ -43,7 +43,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>도트 경마 v4.3</h1>
+  <h1>도트 경마 v4.4</h1>
 
   <div class="grid">
     <div class="panel">
@@ -71,7 +71,7 @@
         <span id="authHint" class="small right" style="opacity:.8;"></span>
       </div>
 
-      <div class="hint">사운드는 첫 클릭 후 재생돼. 출발 전 게이트 대기, 출발 순간 총성/발굽, 결승 땐 관중 환호가 커졌다가 서서히 줄어들어.</div>
+      <div class="hint">출발 전 게이트 대기 → 출발 총성/발굽 → 결승 환호, 실황 텍스트로 중계도 나와요!</div>
     </div>
 
     <div class="panel">
@@ -143,7 +143,7 @@
         <div class="right"><button id="btnCloseCharge" class="ghost">닫기</button></div>
       </div>
       <div class="row">
-        <button id="btnDaily" class="secondary">오늘의 보너스 받기 (+1,000)</button>
+        <button id="btnDaily" class="secondary">오늘의 보너스 받기 (+10,000)</button>
         <span id="dailyHint" class="small" style="opacity:.85;"></span>
       </div>
       <div class="row" style="gap:6px;">
@@ -151,7 +151,7 @@
         <button id="btnCoupon" class="ghost">쿠폰 사용</button>
         <span id="couponHint" class="small" style="opacity:.85;"></span>
       </div>
-      <div class="hint">광고 클릭 보상은 정책 위반 위험이 커서 제공하지 않아요. 대신 출석/쿠폰/미션 보상으로 안전하게 운영해요!</div>
+      <div class="hint">광고 클릭 보상은 정책 위반 위험이라 제공하지 않아요. 출석/쿠폰/미션 보상으로 안전하게 운영!</div>
     </div>
   </div>
 
@@ -225,7 +225,7 @@ walletEl.textContent=fmt(wallet);
 raceNoEl.textContent=raceNo;
 roiEl.textContent=fmt(roiTotal);
 
-/* ===== 리얼 사운드(파일) — assets/audio/xxxxx 업로드 필요 ===== */
+/* ===== 리얼 사운드 ===== */
 let audioCtx=null, soundEnabled=false;
 let bufGun=null, bufGallop=null, bufCrowd=null;
 let gallopSrc=null, gallopGain=null;
@@ -254,21 +254,33 @@ function startCrowd(level=0.2){ if(!soundEnabled||crowdSrc||!bufCrowd) return; c
 function fadeCrowd(level=0.3,sec=0.6){ if(!crowdGain) return; const ctx=getCtx(); if(!ctx) return; const now=ctx.currentTime; crowdGain.gain.cancelScheduledValues(now); crowdGain.gain.setValueAtTime(Math.max(0.0001,crowdGain.gain.value),now); crowdGain.gain.exponentialRampToValueAtTime(Math.max(0.0001,level),now+sec); }
 function stopCrowd(){ if(!crowdSrc||!crowdGain) return; try{ const ctx=getCtx(); const now=ctx.currentTime; crowdGain.gain.cancelScheduledValues(now); crowdGain.gain.exponentialRampToValueAtTime(0.0001,now+0.6); crowdSrc.stop(now+0.7);}catch(_){} crowdSrc=null; crowdGain=null; }
 
-/* ===== 데이터/상태 ===== */
+/* ===== 게임 상태 ===== */
 const namesA=['은하','폭풍','달빛','천둥','유니','블레이즈','다크','초신성','스텔라','라이트','제트','린드'];
 const namesB=['스텝','런','윈드','블리츠','애로우','하모니','웨이브','스파크','피닉스','레인','헤일로','스피릿'];
 const jockeyA=['박','김','이','최','정','한','윤','임','장','서','유','문','안','도','노','송'];
 const jockeyB=['현우','지훈','민수','서연','도윤','하준','예린','지호','서윤','태현','시우','하린','보미','유진','가윤','민재'];
 
 let roster=[], pools, userTickets=[], history=JSON.parse(localStorage.getItem('history')||'[]');
-let phase='betting'; // betting -> closing -> parade -> running -> result
+let phase='betting'; // betting -> closing -> parade -> running -> result -> intermission
 let countdown=30, aiFlowTimer=0;
 let running=false, paradeTimer=0, finishedOrder=[], time=0;
 let raceMeters=1200; const lapMeters=1600; let startAng=0;
+let nextRaceTimer = 0;       // 인터미션 ms 카운트
+let intermissionHint = '';   // HUD 표기
 
 const FIXED=1000/60; let last=performance.now(), acc=0;
 
-/* ===== 게임↔클라우드 지갑 브리지 ===== */
+/* ===== 실황 중계 플래그 ===== */
+let castFlags = { q1:false, q2:false, q3:false };
+let lastLeader = null;
+function addCast(line){
+  const lines = commentaryEl.innerHTML.split('<br>').filter(Boolean);
+  lines.push(`· ${line}`);
+  while (lines.length > 8) lines.shift();
+  commentaryEl.innerHTML = lines.join('<br>');
+}
+
+/* ===== 지갑 브리지 ===== */
 window.gameWallet = {
   setFromCloud(value){
     wallet = Math.max(0, Number(value)||0);
@@ -313,7 +325,7 @@ btnAdd.onclick=()=>{
   handleWallet(-amt);
   rebuildTickets(); renderPayoutPreview(); renderPoolTotals();
 };
-btnStart.onclick=()=>{ if(phase==='running'||phase==='parade') return; startRace(); };
+btnStart.onclick=()=>{ if(phase==='running'||phase==='parade'||phase==='intermission') return; startRace(); };
 btnNew.onclick=()=>{
   if (phase==='running'||phase==='parade'){
     if(!confirm('진행 중인 경주를 포기하고 새로 편성할까요?')) return;
@@ -331,6 +343,10 @@ function newRace(){
   resultEl.textContent=''; payoutsEl.innerHTML=''; commentaryEl.innerHTML='';
   userTickets=[]; rebuildTickets();
   stopGallop(); stopCrowd();
+
+  // 실황 플래그 초기화
+  castFlags = { q1:false, q2:false, q3:false };
+  lastLeader = null;
 
   const cand=[800,1000,1100,1200,1400,1500,1600,1800,2000];
   raceMeters = choice(cand); raceMetersEl.textContent=raceMeters;
@@ -377,6 +393,7 @@ function finishRace(){
 
   const pay=computePayouts(order);
   showPayouts(pay, order);
+  renderPayoutDetails(pay, order); // 상세 표
 
   const totalBet=userTickets.reduce((s,t)=>s+t.amount,0);
   let totalReturn=0; const lines=[];
@@ -394,9 +411,13 @@ function finishRace(){
   localStorage.setItem('history', JSON.stringify(history));
   renderHistory();
 
-  const comm=[]; comm.push(`게이트 오픈! ${nm(first)}가 초반 선두, ${nm(second)}·${nm(third)} 추격!`);
-  comm.push(`${raceMeters}m 직선에서 스퍼트, 접전 끝 ${nm(first)} 우승!`);
-  commentaryEl.innerHTML = comm.map(s=>`<div>· ${s}</div>`).join('');
+  addCast('결승선 통과! 결과가 확정되었습니다.');
+
+  // 인터미션(60초) 진입 → 자동 다음 경주
+  phase = 'intermission';
+  phaseText.textContent = '인터미션';
+  nextRaceTimer = 60 * 1000; // 60초
+  intermissionHint = '다음 경주 편성까지 01:00';
 }
 
 /* ===== 60fps 루프 ===== */
@@ -416,6 +437,19 @@ function update(){
       if (countdown<=0){ startRace(); }
     }
   }
+
+  // 인터미션: 60초 카운트다운 후 자동 편성
+  if (phase==='intermission'){
+    nextRaceTimer -= FIXED;
+    if (nextRaceTimer < 0) nextRaceTimer = 0;
+    const sec = Math.ceil(nextRaceTimer/1000);
+    const m = String(Math.floor(sec/60)).padStart(2,'0');
+    const s = String(sec%60).padStart(2,'0');
+    intermissionHint = `다음 경주 편성까지 ${m}:${s}`;
+    if (nextRaceTimer === 0) newRace();
+    return;
+  }
+
   if (phase==='parade'){
     paradeTimer--; if (paradeTimer<=0){ beginRunning(); }
     return;
@@ -423,7 +457,8 @@ function update(){
   if (!running) return;
 
   time++;
-  roster.forEach((r,idx)=>{
+  // 이동/물리
+  roster.forEach((r)=>{
     if (r.finished) return;
     const base=0.9 + r.speed/120;
     const cond=r.horseCond*r.jockeyCond;
@@ -441,14 +476,27 @@ function update(){
     const a=Math.abs(Math.sin(theta));
     cornerMul *= 0.96 + 0.04*(1-a);
 
-    let v=base*cond*fatigue*kick+jitter*stumbleMul*cornerMul;
+    // 오타 수정: 모두 곱셈
+    let v=base*cond*fatigue*kick*jitter*stumbleMul*cornerMul;
     r.dist += v;
 
     if (r.dist>=raceMeters){
       r.dist=raceMeters; r.finished=true; r.finishTime=time;
-      finishedOrder.push(idx);
+      finishedOrder.push(roster.indexOf(r));
     }
   });
+
+  // 실황: 선두/구간/실수
+  const orderNow = [...roster].map((r,idx)=>({idx,dist:r.dist})).sort((a,b)=>b.dist-a.dist).map(o=>o.idx);
+  const leader = orderNow[0];
+  if (lastLeader === null) lastLeader = leader;
+  const leadDist = roster[leader].dist;
+
+  if (!castFlags.q1 && leadDist >= raceMeters*0.25){ castFlags.q1=true; addCast('1/4 구간 통과! 선두 그룹 빠르게 전개!'); }
+  if (!castFlags.q2 && leadDist >= raceMeters*0.50){ castFlags.q2=true; addCast('중반 진입! 선두권 밀착, 직선주로 승부 준비!'); }
+  if (!castFlags.q3 && leadDist >= raceMeters*0.75){ castFlags.q3=true; addCast('3/4 지점! 스퍼트 준비, 결승선 향해 진입!'); }
+  if (leader !== lastLeader){ addCast(`선두 바뀝니다! #${roster[leader].no} ${roster[leader].name} 앞으로!`); lastLeader=leader; }
+  for (const r of roster){ if (r.stumble===1){ addCast(`아! #${r.no} ${r.name} 약간의 실수! 속도 떨어집니다!`); break; } }
 
   if (finishedOrder.length===roster.length){ finishRace(); }
 }
@@ -518,6 +566,110 @@ function makePools(roster){
   }
   return {win,place,quin,exact,placeq,trio,trifecta};
 }
+function computePayouts(order){
+  const first=order[0], second=order[1], third=order[2];
+  const sumObj=o=>Object.values(o).reduce((a,b)=>a+b,0);
+
+  const winTotal = pools.win.reduce((a,b)=>a+b.amount,0);
+  const winRate  = (winTotal*(1-TAKE))/(pools.win[first].amount||0.001);
+
+  const placeTotal = pools.place.reduce((a,b)=>a+b.amount,0);
+  const p1 = (placeTotal*(1-TAKE)/3)/(pools.place[first].amount||0.001);
+  const p2 = (placeTotal*(1-TAKE)/3)/(pools.place[second].amount||0.001);
+  const p3 = (placeTotal*(1-TAKE)/3)/(pools.place[third].amount||0.001);
+
+  const quinTotal = sumObj(pools.quin);
+  const keyQ = first<second?`${first}-${second}`:`${second}-${first}`;
+  const quinRate = (quinTotal*(1-TAKE))/(pools.quin[keyQ]||0.001);
+
+  const exactTotal = sumObj(pools.exact);
+  const keyE = `${first}>${second}`;
+  const exactRate = (exactTotal*(1-TAKE))/(pools.exact[keyE]||0.001);
+
+  const pqTotal = sumObj(pools.placeq);
+  const keysPQ = [
+    first<second?`${first}-${second}`:`${second}-${first}`,
+    first<third?`${first}-${third}`:`${third}-${first}`,
+    second<third?`${second}-${third}`:`${third}-${second}`
+  ];
+  const pqOn = keysPQ.reduce((s,k)=>s+(pools.placeq[k]||0),0)||0.001;
+  const pqRate = (pqTotal*(1-TAKE))/pqOn;
+
+  const trioTotal = sumObj(pools.trio);
+  const keyT = sortedKey(first,second,third);
+  const trioRate = (trioTotal*(1-TAKE))/(pools.trio[keyT]||0.001);
+
+  const trifTotal = sumObj(pools.trifecta);
+  const keyTf = `${first}>${second}>${third}`;
+  const trifRate = (trifTotal*(1-TAKE))/(pools.trifecta[keyTf]||0.001);
+
+  return { win:winRate, place:[p1,p2,p3], quin:quinRate, exact:exactRate, placeq:pqRate, trio:trioRate, trifecta:trifRate };
+}
+function showPayouts(pay, order){
+  const first=order[0], second=order[1], third=order[2];
+  const nm=i=>`#${roster[i].no}`;
+  payoutsEl.innerHTML = `
+    <div class="row small">
+      <div class="tag">단승식 ${nm(first)}</div><div class="odds">${fmtOdds(pay.win)}</div>
+      <div class="tag">연승식 ${nm(first)}</div><div class="odds">${fmtOdds(pay.place[0])}</div>
+      <div class="tag">연승식 ${nm(second)}</div><div class="odds">${fmtOdds(pay.place[1])}</div>
+      <div class="tag">연승식 ${nm(third)}</div><div class="odds">${fmtOdds(pay.place[2])}</div>
+    </div>
+    <div class="row small" style="margin-top:6px;">
+      <div class="tag">복승식 ${nm(first)}-${nm(second)}</div><div class="odds">${fmtOdds(pay.quin)}</div>
+      <div class="tag">쌍승식 ${nm(first)}>${nm(second)}</div><div class="odds">${fmtOdds(pay.exact)}</div>
+    </div>
+    <div class="row small" style="margin-top:6px;">
+      <div class="tag">복연승식 (Top3 임의 2두)</div><div class="odds">${fmtOdds(pay.placeq)}</div>
+      <div class="tag">삼복승식 (Top3 무순)</div><div class="odds">${fmtOdds(pay.trio)}</div>
+      <div class="tag">삼쌍승식 ${nm(first)}>${nm(second)}>${nm(third)}</div><div class="odds">${fmtOdds(pay.trifecta)}</div>
+    </div>
+  `;
+}
+function renderPayoutDetails(pay, order) {
+  const first=order[0], second=order[1], third=order[2];
+  const nm=i=>`#${roster[i].no}`;
+  const r=(x)=> (isFinite(x)? x : null);
+  const won100 =(od)=> (od ? Math.floor(od*100) : null);
+  const won1000=(od)=> (od ? Math.floor(od*1000) : null);
+
+  const rows = [
+    { name:`단승 ${nm(first)}`, od:r(pay.win) },
+    { name:`연승 ${nm(first)}`, od:r(pay.place[0]) },
+    { name:`연승 ${nm(second)}`, od:r(pay.place[1]) },
+    { name:`연승 ${nm(third)}`, od:r(pay.place[2]) },
+    { name:`복승 ${nm(first)}-${nm(second)}`, od:r(pay.quin) },
+    { name:`쌍승 ${nm(first)}>${nm(second)}`, od:r(pay.exact) },
+    { name:`복연 (Top3 임의 2두)`, od:r(pay.placeq) },
+    { name:`삼복 (Top3 무순)`, od:r(pay.trio) },
+    { name:`삼쌍 ${nm(first)}>${nm(second)}>${nm(third)}`, od:r(pay.trifecta) },
+  ];
+
+  const html = `
+    <div class="hr"></div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr>
+        <th style="text-align:left;padding:4px 6px;">종목</th>
+        <th style="padding:4px 6px;">배당률</th>
+        <th style="padding:4px 6px;">100원 기준</th>
+        <th style="padding:4px 6px;">1,000원 기준</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(row=>{
+          const od=row.od, w100=won100(od), w1000=won1000(od);
+          return `<tr>
+            <td style="text-align:left;padding:4px 6px;">${row.name}</td>
+            <td style="padding:4px 6px;">${od? od.toFixed(1) : '-'}</td>
+            <td style="padding:4px 6px;">${w100!=null? `${w100.toLocaleString()}원` : '-'}</td>
+            <td style="padding:4px 6px;">${w1000!=null? `${w1000.toLocaleString()}원` : '-'}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+  payoutsEl.innerHTML += html;
+}
+
 function renderPoolTotals(){
   const sumObj=o=>Object.values(o).reduce((a,b)=>a+b,0);
   const tWin=pools.win.reduce((a,b)=>a+b.amount,0);
@@ -607,16 +759,17 @@ function addUserPool(type,a,b,amt,c){
   else if (type==='TRIFECTA') { const key=`${a}>${b}>${c}`; pools.trifecta[key]=(pools.trifecta[key]||0)+amt; }
 }
 
-/* ===== 드로잉(오벌/도트) ===== */
+/* ===== 드로잉 ===== */
 function draw(){
   ctx.fillStyle='#0b0e16'; ctx.fillRect(0,0,canvas.width,canvas.height);
   ctx.save(); ctx.scale(SCALE,SCALE);
 
+  // 잔디/트랙
   ctx.fillStyle='#114a1d';
   ctx.beginPath(); ctx.ellipse(CX, CY, RX+18, RY+18, 0, 0, Math.PI*2); ctx.fill();
-
   drawTrack();
 
+  // 거리 표지
   [800,1000,1100,1200,1400,1500].forEach(m=>{
     const ang = normAngle(FINISH_ANG - 2*Math.PI*(m/lapMeters));
     drawDistanceSign(ang, m);
@@ -625,6 +778,7 @@ function draw(){
   drawFinishPost(FINISH_ANG);
   if (phase==='betting'||phase==='closing'||phase==='parade') drawGate(startAng);
 
+  // 말
   const N=roster.length;
   roster.forEach((r,idx)=>{
     let ang = (phase==='parade') ? startAng + Math.sin((performance.now()/120)+idx)*0.02
@@ -638,7 +792,9 @@ function draw(){
     if (!r.finished && r.stumble>0) px(Math.round(x)-3, Math.round(y)+2, 2, 2, '#ff9e9e');
   });
 
-  smallText(phase==='parade'?'출발 준비':phase==='running'?'RACE RUNNING':phase==='betting'?'BETTING OPEN':phase==='closing'?'CLOSING':'RESULT', 6, 8, '#c8d0ff');
+  // HUD
+  smallText(phase==='parade'?'출발 준비':phase==='running'?'RACE RUNNING':phase==='betting'?'BETTING OPEN':phase==='closing'?'CLOSING':phase==='intermission'?'INTERMISSION':'RESULT', 6, 8, '#c8d0ff');
+  if (phase==='intermission') smallText(intermissionHint, 6, 16, '#9df7c7');
   smallText(`${raceMeters}m`, W-36, 8, '#ffd26e');
 
   ctx.restore();
@@ -705,7 +861,7 @@ function normAngle(a){ while(a<=-Math.PI) a+=2*Math.PI; while(a>Math.PI) a-=2*Ma
 function syncControls(){
   const canBet=(phase==='betting'||phase==='closing');
   [btnAdd,selType,pickA,pickB,pickC,amount].forEach(el=>el.disabled=!canBet);
-  const canStart=!(phase==='running'||phase==='result'||phase==='parade');
+  const canStart=!(phase==='running'||phase==='result'||phase==='parade'||phase==='intermission');
   btnStart.disabled=!canStart;
 }
 function renderHistory(){
@@ -738,7 +894,6 @@ function renderHistory(){
   } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
   import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-functions.js';
 
-  /* 네 Firebase 구성 */
   const firebaseConfig = {
     apiKey: "AIzaSyCDAkMPPoAKYZj4dS74eLJM0fuko_tcvhE",
     authDomain: "authentication-2a265.firebaseapp.com",
@@ -752,7 +907,7 @@ function renderHistory(){
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   const db   = getFirestore(app);
-  const functions = getFunctions(app);
+  const functions = getFunctions(app); // 리전을 바꿨다면 getFunctions(app, 'asia-northeast3') 처럼 지정
   try { await enableIndexedDbPersistence(db); } catch(_) {}
 
   // DOM
@@ -769,12 +924,10 @@ function renderHistory(){
   const couponInput= document.getElementById('couponInput');
   const couponHint = document.getElementById('couponHint');
 
-  // 로컬 지갑(게스트용 캐시)
   let uid = null;
   let localWallet = Number(localStorage.getItem('wallet') || 100000);
   if (!Number.isFinite(localWallet) || localWallet <= 0) localWallet = 100000;
 
-  // 게임 연동 API
   window.firebaseWallet = {
     add: async (delta) => {
       if (!uid) {
@@ -803,9 +956,9 @@ function renderHistory(){
     get: () => localWallet
   };
 
-  // Functions(서버측) 콜러(배포 전이면 에러 → 클라이언트 폴백)
-  const callDaily   = httpsCallable(functions, 'walletTopupDaily');
-  const callCoupon  = httpsCallable(functions, 'walletRedeemCoupon');
+  // 서버 함수
+  const callDaily  = httpsCallable(functions, 'walletTopupDaily');
+  const callCoupon = httpsCallable(functions, 'walletRedeemCoupon');
 
   // 로그인 상태 감시 + 지갑 실시간 구독
   let unsubWallet = null;
@@ -836,7 +989,6 @@ function renderHistory(){
         }
       });
 
-      // 남은 시간 힌트 갱신(클라이언트 추정)
       updateDailyHintClient();
     } else {
       uid = null;
@@ -852,24 +1004,7 @@ function renderHistory(){
     }
   });
 
-  // 버튼
-  btnSignup.onclick = async () => {
-    const email = emailEl.value.trim();
-    const pw    = passwordEl.value.trim();
-    if (!email || !pw) return alert('이메일/비번 입력!');
-    try { await createUserWithEmailAndPassword(auth, email, pw); }
-    catch (e) { alert('회원가입 실패: ' + e.message); }
-  };
-  btnLogin.onclick = async () => {
-    const email = emailEl.value.trim();
-    const pw    = passwordEl.value.trim();
-    if (!email || !pw) return alert('이메일/비번 입력!');
-    try { await signInWithEmailAndPassword(auth, email, pw); }
-    catch (e) { alert('로그인 실패: ' + e.message); }
-  };
-  btnLogout.onclick = async () => { try { await signOut(auth); } catch(_) {} };
-
-  // 출석 보너스: 서버 우선, 실패 시 클라 폴백
+  // 출석 보너스: 서버 우선
   btnDaily.onclick = async () => {
     if (!uid) return alert('로그인해줘!');
     try {
@@ -878,16 +1013,13 @@ function renderHistory(){
         dailyHint.textContent = '지급 완료! 잠시 후 잔액이 반영돼요.';
       }
     } catch (e) {
-      // 서버 미배포 등 에러 → 프론트 폴백(테스트용)
-      try {
-        await claimDailyClient();
-      } catch (e2) {
-        alert(e2.message || '보너스 수령 실패');
-      }
+      // 폴백 제거를 원하면 아래 3줄을 삭제하고 alert만 남겨
+      try { await claimDailyClient(); }
+      catch (e2){ alert(e.message || e2.message || '보너스 수령 실패'); }
     }
   };
 
-  // 쿠폰 사용: 서버 함수 필수
+  // 쿠폰 사용: 서버 필수
   btnCoupon.onclick = async () => {
     if (!uid) return alert('로그인해줘!');
     const code = (couponInput.value||'').trim();
@@ -905,7 +1037,7 @@ function renderHistory(){
     }
   };
 
-  // 클라이언트 폴백: Firestore 타임스탬프 기반(완전 보안X, 테스트/초기 운영용)
+  // 클라이언트 폴백(테스트용): 10,000원
   async function claimDailyClient(){
     const ref = doc(db, 'users', uid);
     const snap = await getDoc(ref);
@@ -919,15 +1051,11 @@ function renderHistory(){
       dailyHint.textContent = `다음 보너스까지 약 ${h}시간`;
       throw new Error('아직 24시간이 안 지났어');
     }
-    await window.firebaseWallet.add(1000); // 잔액 증가(실시간 구독으로 반영)
+    await window.firebaseWallet.add(10000);
     await setDoc(ref, { lastClaimAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
     dailyHint.textContent = '지급 완료!';
   }
-
-  function updateDailyHintClient(){
-    // 단순 안내(정확한 서버 시간 보장은 Functions 사용 권장)
-    dailyHint.textContent = '하루 1회 1,000원 지급';
-  }
+  function updateDailyHintClient(){ dailyHint.textContent = '하루 1회 10,000원 지급'; }
 </script>
 </body>
 </html>
