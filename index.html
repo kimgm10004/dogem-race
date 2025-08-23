@@ -53,7 +53,7 @@
         <button id="btnStart">출발!</button>
         <div class="pill">경주번호 <span id="raceNo">1</span></div>
         <div class="pill">상태 <span id="phaseText">베팅 오픈</span> · 마감까지 <span id="countdown">--</span>s</div>
-        <div class="pill">지갑 <span id="wallet" class="money">0</span> 원</div>
+        <div class="pill">지갑 <span id="wallet" class="money">200000</span> 원</div>
       </div>
       <div class="hint">컨디션은 숨김. 고능력마가 항상 이기지 않아요. 출발 전까지 AI 베팅이 유입되어 배당이 실시간 변동돼요.</div>
     </div>
@@ -527,3 +527,4 @@ function aiRandomFlow(){
     const picks = pickNWeighted(3, roster.map(r=>r.rating));
     const keyT = sortedKey(...picks);
     pools.trio[keyT] = (pools.trio[keyT]||0)+Math.floor(add()*0.
+
