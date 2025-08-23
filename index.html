@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<title>도트 경마 베팅 프로토타입</title>
+<style>
+  :root {
+    --bg:#0b0e16; --panel:#0f1424; --line:#1f2940; --text:#c8d0ff;
+    --accent:#6C5CE7; --good:#9df7c7; --warn:#ffd26e; --bad:#ff7a9e;
+  }
+  html,body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  .wrap { max-width:980px; margin:0 auto; padding:14px; }
+  h1 { margin:0 0 8px; font-size:20px; color:#fff; }
+  .grid { display:grid; grid-template-columns: 520px 1fr; gap:12px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px; }
+  canvas { width:100%; height:auto; display:block; image-rendering:pixelated; border-radius:8px; border:1px solid var(--line); }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th, td { border-bottom:1px dashed var(--line); padding:6px 8px; text-align:center; }
+  th { color:#9fb0ff; }
+  .badge { display:inline-block; padding:2px 6px; border-radius:999px; font-size:11px; border:1px solid var(--line); background:#111729; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .row > * { flex: 1 1 auto; }
+  select, input[type=number], input[type=text] { width:100%; background:#0d1330; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:6px 8px; }
+  button { background:var(--accent); color:white; border:0; border-radius:8px; padding:8px 12px; cursor:pointer; }
+  button.secondary { background:#1e2a53; color:#dbe1ff; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--text); }
+  .hint { font-size:12px; opacity:.75; margin-top:6px; }
+  .pill { padding:2px 8px; border-radius:999px; background:#141a33; border:1px solid var(--line); }
+  .money { font-weight:700; color:#ffd26e; }
+  .odds { font-variant-numeric: tabular-nums; }
+  .footer { margin-top:10px; font-size:12px; opacity:.8; }
+  .ticket { background:#0e1531; border:1px solid var(--line); padding:8px; border-radius:8px; margin:6px 0; font-size:12px; }
+  .laneTag { display:inline-block; width:16px; height:16px; border-radius:4px; margin-right:6px; vertical-align:middle; }
+  .flex { display:flex; gap:8px; align-items:center; }
+  .right { text-align:right; }
+  .small { font-size:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>도트 경마 베팅</h1>
+  <div class="grid">
+    <div class="panel">
+      <canvas id="game"></canvas>
+      <div class="row" style="margin-top:8px;">
+        <button id="btnNew" class="secondary">다음 경주 편성</button>
+        <button id="btnStart">출발!</button>
+        <div class="pill">경주번호 <span id="raceNo">1</span></div>
+        <div class="pill">지갑 <span id="wallet" class="money">0</span> 원</div>
+      </div>
+      <div class="hint">참고: 실제 베팅 아님. 컨디션(숨김)과 랜덤 이벤트로 고능력마가 항상 이기지 않습니다.</div>
+    </div>
+
+    <div class="panel">
+      <div class="row">
+        <div class="pill">테이크아웃 18%</div>
+        <div class="pill">두 수: <span id="fieldSize">-</span></div>
+        <div class="pill">예상 배당은 AI 풀 기준</div>
+      </div>
+
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th>번</th><th>마명</th><th>기수</th>
+            <th>속력</th><th>지구력</th><th>스퍼트</th><th>기수숙련</th>
+            <th>예상단승</th><th>예상연승</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div style="margin-top:10px;">
+        <div class="row">
+          <select id="betType">
+            <option value="WIN">단승식 (1착)</option>
+            <option value="PLACE">연승식 (3위 내)</option>
+            <option value="QUINELLA">복승식 (1·2착 순서무관)</option>
+            <option value="EXACTA">쌍승식 (1·2착 순서일치)</option>
+          </select>
+          <input id="pickA" type="number" min="1" value="1" placeholder="말 번호" />
+          <input id="pickB" type="number" min="1" value="2" placeholder="두번째 말(필요시)" />
+          <input id="amount" type="number" min="100" step="100" value="1000" />
+          <button id="btnAdd">베팅 추가</button>
+        </div>
+        <div class="hint">WIN/PLACE는 말 1두, QUINELLA/EXACTA는 말 2두를 입력해줘.</div>
+        <div id="tickets"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:12px;">
+    <div class="row">
+      <div class="pill">결과</div>
+      <div id="resultText"></div>
+    </div>
+    <div id="payouts" class="small" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="footer">© 도검유트브 — GitHub Pages에 index.html 업로드 후 티스토리에 iframe으로 임베드하면 끝!</div>
+</div>
+
+<script>
+(()=> {
+  // ---------------- 기본 상수/상태 ----------------
+  const TAKE = 0.18;            // 테이크아웃(배당 공제)
+  const HORSES = 12;            // 출전 마수
+  const TRACK_LEN = 1000;       // 트랙 길이(가상)
+  const LANE_H = 14;            // 한 레인 높이(도트)
+  const SCALE = 3;              // 캔버스 스케일(도트)
+  const W = 300, H = LANE_H * (HORSES + 2); // 가상 해상도
+  const COLORS = [
+    '#ff6b6b','#feca57','#1dd1a1','#5f27cd','#54a0ff',
+    '#ff9ff3','#48dbfb','#576574','#c8d6e5','#ffaf40','#10ac84','#ee5253'
+  ];
+
+  // 캔버스
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  canvas.width = W * SCALE;
+  canvas.height = H * SCALE;
+  ctx.imageSmoothingEnabled = false;
+
+  // DOM
+  const tblBody = document.querySelector('#tbl tbody');
+  const fieldSizeEl = document.getElementById('fieldSize');
+  const walletEl = document.getElementById('wallet');
+  const ticketsEl = document.getElementById('tickets');
+  const resultEl = document.getElementById('resultText');
+  const payoutsEl = document.getElementById('payouts');
+  const raceNoEl = document.getElementById('raceNo');
+
+  const btnNew = document.getElementById('btnNew');
+  const btnStart = document.getElementById('btnStart');
+  const btnAdd = document.getElementById('btnAdd');
+  const selType = document.getElementById('betType');
+  const pickA = document.getElementById('pickA');
+  const pickB = document.getElementById('pickB');
+  const amount = document.getElementById('amount');
+
+  // 지갑
+  let wallet = Number(localStorage.getItem('wallet') || 100000);
+  updateWallet(0);
+  let raceNo = Number(localStorage.getItem('raceNo') || 1);
+  raceNoEl.textContent = raceNo;
+
+  // 경주 데이터
+  const namesA = ['은하','폭풍','달빛','천둥','유니','블레이즈','다크','초신성','스텔라','라이트','제트','린드'];
+  const namesB = ['스텝','런','윈드','블리츠','애로우','하모니','웨이브','스파크','피닉스','레인','헤일로','스피릿'];
+  const jockeyA = ['박','김','이','최','정','한','윤','임','장','서','유','문','안','도','노','송'];
+  const jockeyB = ['현우','지훈','민수','서연','도윤','하준','예린','지호','서윤','태현','시우','하린','보미','유진','가윤','민재'];
+
+  const rand = (a,b)=> a + Math.random()*(b-a);
+  const rint = (a,b)=> Math.floor(rand(a,b+1));
+  const clamp = (v,a,b)=> Math.max(a, Math.min(b,v));
+  const choice = arr => arr[Math.floor(Math.random()*arr.length)];
+
+  // 상태
+  let roster = [];        // 말/기수/능력
+  let pools;              // 베팅 풀
+  let userTickets = [];   // 내 티켓 목록
+  let running = false;    // 레이스 진행 중
+  let finishedOrder = []; // 도착 순서(인덱스)
+  let time = 0;           // 경과 프레임
+  let acc = 0;            // fixed step accumulator
+  const FIXED = 1000/60;
+
+  // ---------------- 초기화 ----------------
+  newRace();
+
+  // 새 경주
+  function newRace() {
+    running = false;
+    time = 0; acc = 0;
+    finishedOrder.length = 0;
+    resultEl.textContent = '';
+    payoutsEl.innerHTML = '';
+
+    // 말/기수 생성
+    roster = Array.from({length:HORSES}, (_,i) => {
+      const speed = rint(60, 99);
+      const stamina = rint(55, 95);
+      const burst = rint(50, 98);
+      const jockeySkill = rint(60, 98);
+      const horseCond = rand(0.88, 1.12); // 숨김
+      const jockeyCond = rand(0.90, 1.10); // 숨김
+      const name = choice(namesA) + choice(namesB);
+      const jockey = choice(jockeyA) + choice(jockeyB);
+      // 예측용 공개 레이팅(컨디션 미포함)
+      const rating = speed*0.5 + stamina*0.3 + burst*0.15 + jockeySkill*0.2;
+      return {
+        no:i+1, color: COLORS[i%COLORS.length], name, jockey,
+        speed, stamina, burst, jockeySkill,
+        horseCond, jockeyCond,
+        rating,
+        x: 0, y: LANE_H*(i+1), vx:0,
+        fatigue:1, stumble:0, finished:false, finishTime:null
+      };
+    });
+
+    // AI 풀 생성(예상 배당 표시용)
+    pools = makePools(roster);
+    renderTable();
+    renderPayoutPreview();
+
+    // UI
+    fieldSizeEl.textContent = roster.length;
+    userTickets = [];
+    rebuildTickets();
+    drawScene();
+  }
+
+  // 풀 생성
+  function makePools(roster) {
+    const baseWin = 80000, basePlace = 60000, baseQuin = 120000, baseExact = 100000;
+    const weights = roster.map(r => Math.pow(r.rating, 1.8)); // 강할수록 베팅 몰림
+    const wsum = weights.reduce((a,b)=>a+b,0);
+
+    const win = roster.map((r,i)=> ({
+      key:`H${i}`, amount: Math.max(1000, (weights[i]/wsum)*baseWin * rand(0.8,1.2))
+    }));
+
+    const place = roster.map((r,i)=> ({
+      key:`P${i}`, amount: Math.max(1000, (weights[i]/wsum)*basePlace * rand(0.9,1.2))
+    }));
+
+    // 복승(무순서)
+    const quin = {};
+    for (let i=0;i<roster.length;i++){
+      for (let j=i+1;j<roster.length;j++){
+        const w = (weights[i]*weights[j]);
+        quin[`${i}-${j}`] = Math.max(500, (w/(wsum*wsum))*baseQuin * rand(0.8,1.3));
+      }
+    }
+
+    // 쌍승(순서)
+    const exact = {};
+    for (let i=0;i<roster.length;i++){
+      for (let j=0;j<roster.length;j++){
+        if (i===j) continue;
+        const w = (weights[i]*weights[j]*1.1);
+        exact[`${i}>${j}`] = Math.max(300, (w/(wsum*wsum))*baseExact * rand(0.8,1.3));
+      }
+    }
+
+    return { win, place, quin, exact };
+  }
+
+  // 예상 배당 계산(현재 풀 기준)
+  function renderPayoutPreview() {
+    const estWin = pools.win.map((p,i)=>{
+      const total = pools.win.reduce((a,b)=>a+b.amount,0);
+      const ret = (total*(1-TAKE))/p.amount;
+      return { i, ret: Math.max(1.0, ret).toFixed(1) };
+    });
+    const estPlace = pools.place.map((p,i)=>{
+      const total = pools.place.reduce((a,b)=>a+b.amount,0);
+      const ret = (total*(1-TAKE))/p.amount;
+      return { i, ret: Math.max(1.0, ret).toFixed(1) };
+    });
+
+    // 표에 주입
+    for (let i=0;i<roster.length;i++){
+      const tr = tblBody.children[i];
+      tr.querySelector('[data-odds-win]').textContent = estWin[i].ret;
+      tr.querySelector('[data-odds-place]').textContent = estPlace[i].ret;
+    }
+  }
+
+  // 표 만들기
+  function renderTable() {
+    tblBody.innerHTML = '';
+    roster.forEach((r, idx) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><span class="laneTag" style="background:${r.color}"></span>${r.no}</td>
+        <td>${r.name}</td>
+        <td>${r.jockey}</td>
+        <td>${r.speed}</td>
+        <td>${r.stamina}</td>
+        <td>${r.burst}</td>
+        <td>${r.jockeySkill}</td>
+        <td class="odds" data-odds-win>-</td>
+        <td class="odds" data-odds-place>-</td>
+      `;
+      tblBody.appendChild(tr);
+    });
+  }
+
+  // 티켓 관리
+  function rebuildTickets() {
+    ticketsEl.innerHTML = '';
+    if (userTickets.length === 0) {
+      ticketsEl.innerHTML = `<div class="hint">베팅을 추가해줘. 하나의 경주에 여러 티켓 가능!</div>`;
+      return;
+    }
+    userTickets.forEach((t,idx)=>{
+      const div = document.createElement('div');
+      div.className = 'ticket flex';
+      div.innerHTML = `
+        <div class="badge">${t.type}</div>
+        <div>${descTicket(t)}</div>
+        <div class="right" style="flex:1"></div>
+        <div><span class="money">${fmt(t.amount)}</span> 원</div>
+        <button class="ghost small" data-del="${idx}">삭제</button>
+      `;
+      ticketsEl.appendChild(div);
+    });
+    ticketsEl.querySelectorAll('[data-del]').forEach(btn=>{
+      btn.onclick = (e)=>{
+        const i = Number(btn.dataset.del);
+        updateWallet(userTickets[i].amount); // 환불
+        userTickets.splice(i,1);
+        rebuildTickets();
+      }
+    });
+  }
+
+  function descTicket(t) {
+    const m = (i)=> `${roster[i].no} ${roster[i].name}`;
+    if (t.type==='WIN') return `단승식: ${m(t.a)}`;
+    if (t.type==='PLACE') return `연승식: ${m(t.a)}`;
+    if (t.type==='QUINELLA') return `복승식: ${m(t.a)} - ${m(t.b)} (순서무관)`;
+    if (t.type==='EXACTA') return `쌍승식: ${m(t.a)} > ${m(t.b)} (순서일치)`;
+    return '';
+  }
+
+  function updateWallet(delta) {
+    wallet += delta;
+    walletEl.textContent = fmt(wallet);
+    localStorage.setItem('wallet', wallet);
+  }
+
+  // ---------------- 입력/버튼 ----------------
+  btnAdd.onclick = ()=>{
+    const type = selType.value;
+    let a = Number(pickA.value)-1;
+    let b = Number(pickB.value)-1;
+    const amt = Math.max(100, Math.floor(Number(amount.value)/100)*100);
+
+    if (running) return alert('경주 중에는 베팅할 수 없어!');
+    if (!Number.isFinite(amt) || amt<=0) return alert('금액을 확인해줘.');
+    if (wallet < amt) return alert('지갑이 부족해 ㅠㅠ');
+
+    if (type==='WIN' || type==='PLACE') {
+      if (!inRange(a,0,roster.length-1)) return alert('말 번호 확인!');
+      addUserPool(type, a, null, amt);
+      userTickets.push({ type, a, amount: amt });
+    } else if (type==='QUINELLA' || type==='EXACTA') {
+      if (!inRange(a,0,roster.length-1) || !inRange(b,0,roster.length-1) || a===b) return alert('두 말 번호 확인!');
+      addUserPool(type, a, b, amt);
+      userTickets.push({ type, a, b, amount: amt });
+    }
+    updateWallet(-amt);
+    rebuildTickets();
+    renderPayoutPreview();
+  };
+
+  btnStart.onclick = ()=>{
+    if (running) return;
+    if (userTickets.length === 0) {
+      if (!confirm('베팅 없이 시작할까?')) return;
+    }
+    running = true;
+  };
+
+  btnNew.onclick = ()=>{
+    if (running && !confirm('진행 중인 경주를 포기하고 새로 편성할까요?')) return;
+    raceNo += 1;
+    raceNoEl.textContent = raceNo;
+    localStorage.setItem('raceNo', raceNo);
+    newRace();
+  };
+
+  function inRange(v,a,b){ return v>=a && v<=b; }
+
+  // 유저 베팅을 풀에 합산
+  function addUserPool(type, a, b, amt) {
+    if (type==='WIN') pools.win[a].amount += amt;
+    else if (type==='PLACE') pools.place[a].amount += amt;
+    else if (type==='QUINELLA') {
+      const [i,j] = a<b ? [a,b] : [b,a];
+      const key = `${i}-${j}`;
+      pools.quin[key] = (pools.quin[key]||0) + amt;
+    } else if (type==='EXACTA') {
+      const key = `${a}>${b}`;
+      pools.exact[key] = (pools.exact[key]||0) + amt;
+    }
+  }
+
+  // ---------------- 레이스 로직 ----------------
+  // 60fps 고정 스텝
+  let last = performance.now();
+  function loop(ts) {
+    let delta = ts - last; last = ts;
+    if (delta>250) delta=250;
+    acc += delta;
+    while (acc >= FIXED) {
+      update(FIXED);
+      acc -= FIXED;
+    }
+    drawScene();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  function update() {
+    if (!running) return;
+
+    time++;
+
+    roster.forEach((r)=>{
+      if (r.finished) return;
+
+      // 기본 속도(도/프레임) — 속력·숙련 반영
+      const base = (1.6 + r.speed/70) * (1 + (r.jockeySkill-70)/400);
+
+      // 컨디션(숨김)
+      const cond = r.horseCond * r.jockeyCond;
+
+      // 피로도: 진행 비율에 따라 속도 저하(지구력 좋으면 덜 떨어짐)
+      const prog = r.x / TRACK_LEN;
+      const fatigueDrop = 1 - (prog * (1.2 - r.stamina/100));
+      r.fatigue = clamp(fatigueDrop, 0.72, 1.02);
+
+      // 막판 스퍼트
+      const kick = (prog > 0.8) ? (1 + (r.burst/100)*0.35) : 1;
+
+      // 미세 랜덤
+      const jitter = rand(0.98, 1.02);
+
+      // 드문 실수 이벤트(0.7%/초): 60프레임 기준 약 0.0117/프레임
+      if (r.stumble<=0 && Math.random() < 0.0117) {
+        r.stumble = rint(30, 70); // 0.5~1.2초 감속
+      }
+      const stumbleMul = (r.stumble>0) ? 0.72 : 1;
+      if (r.stumble>0) r.stumble--;
+
+      // 최종 속도
+      const v = base * cond * r.fatigue * kick * jitter * stumbleMul;
+
+      r.x += v;
+      if (r.x >= TRACK_LEN) {
+        r.x = TRACK_LEN; r.finished = true; r.finishTime = time;
+        finishedOrder.push(roster.indexOf(r));
+        if (finishedOrder.length === roster.length) finishRace();
+      }
+    });
+  }
+
+  function finishRace() {
+    running = false;
+
+    // 순위 계산
+    const order = [...finishedOrder]; // 인덱스 목록
+    const first = order[0], second = order[1], third = order[2];
+
+    // 배당 계산
+    const payoutInfo = computePayouts(order);
+
+    // 내 티켓 정산
+    let totalReturn = 0;
+    const lines = [];
+    userTickets.forEach((t)=>{
+      const ret = settleTicket(t, order, payoutInfo);
+      totalReturn += ret;
+      const txt = `${descTicket(t)} → ${ret>0? '적중 ' + fmt(Math.floor(ret)) + '원':'미적중'}`;
+      lines.push(txt);
+    });
+    if (totalReturn>0) updateWallet(Math.floor(totalReturn));
+
+    // 결과 표시
+    const top3 = order.slice(0,3).map(i=> `${roster[i].no}-${roster[i].name}`).join('  /  ');
+    resultEl.innerHTML = `<b>도착 순서</b>: ${top3}  |  총 환급: <span class="money">${fmt(Math.floor(totalReturn))}</span> 원`;
+
+    // 배당 표기
+    payoutsEl.innerHTML = `
+      <div class="row">
+        <div class="pill">단승식: ${fmtOdds(payoutInfo.win)}</div>
+        <div class="pill">연승식: ${payoutInfo.place.map((v,i)=> v? \`#\${roster[ [first,second,third][i] ].no} \${v.toFixed(1)}\` : '').filter(Boolean).join('  |  ')}</div>
+        <div class="pill">복승식: ${payoutInfo.quin? payoutInfo.quin.toFixed(1):'-'}</div>
+        <div class="pill">쌍승식: ${payoutInfo.exact? payoutInfo.exact.toFixed(1):'-'}</div>
+      </div>
+      <div style="margin-top:6px;">${lines.map(s=>`<div>• ${s}</div>`).join('')}</div>
+    `;
+  }
+
+  // 배당 계산(파리뮤추얼)
+  function computePayouts(order) {
+    const first = order[0], second = order[1], third = order[2];
+
+    // 단승
+    const winTotal = pools.win.reduce((a,b)=>a+b.amount,0);
+    const winOn = pools.win[first].amount || 0.001;
+    const winRate = (winTotal*(1-TAKE))/winOn;
+
+    // 연승(3두 각각 따로)
+    const placeTotal = pools.place.reduce((a,b)=>a+b.amount,0);
+    const placeOn1 = pools.place[first].amount || 0.001;
+    const placeOn2 = pools.place[second].amount || 0.001;
+    const placeOn3 = pools.place[third].amount || 0.001;
+    const placeRate1 = (placeTotal*(1-TAKE)/3)/placeOn1; // 3분배(간단화)
+    const placeRate2 = (placeTotal*(1-TAKE)/3)/placeOn2;
+    const placeRate3 = (placeTotal*(1-TAKE)/3)/placeOn3;
+
+    // 복승(무순서)
+    const kQuin = first<second ? `${first}-${second}` : `${second}-${first}`;
+    const quinTotal = Object.values(pools.quin).reduce((a,b)=>a+b,0);
+    const quinOn = (pools.quin[kQuin]||0.001);
+    const quinRate = (quinTotal*(1-TAKE))/quinOn;
+
+    // 쌍승(순서)
+    const kExact = `${first}>${second}`;
+    const exactTotal = Object.values(pools.exact).reduce((a,b)=>a+b,0);
+    const exactOn = (pools.exact[kExact]||0.001);
+    const exactRate = (exactTotal*(1-TAKE))/exactOn;
+
+    return {
+      win: winRate,
+      place: [placeRate1, placeRate2, placeRate3],
+      quin: isFinite(quinRate)?quinRate:null,
+      exact: isFinite(exactRate)?exactRate:null
+    };
+  }
+
+  function settleTicket(t, order, pay) {
+    const first = order[0], second = order[1], third = order[2];
+    if (t.type==='WIN') {
+      if (t.a===first) return t.amount * Math.max(1.0, pay.win);
+      return 0;
+    }
+    if (t.type==='PLACE') {
+      if (t.a===first) return t.amount * Math.max(1.0, pay.place[0]);
+      if (t.a===second) return t.amount * Math.max(1.0, pay.place[1]);
+      if (t.a===third) return t.amount * Math.max(1.0, pay.place[2]);
+      return 0;
+    }
+    if (t.type==='QUINELLA') {
+      const [i,j] = t.a<t.b ? [t.a,t.b] : [t.b,t.a];
+      const [fi,fj] = first<second ? [first,second] : [second,first];
+      if (i===fi && j===fj) return t.amount * Math.max(1.0, pay.quin||0);
+      return 0;
+    }
+    if (t.type==='EXACTA') {
+      if (t.a===first && t.b===second) return t.amount * Math.max(1.0, pay.exact||0);
+      return 0;
+    }
+    return 0;
+  }
+
+  function fmt(v){ return v.toLocaleString('ko-KR'); }
+  function fmtOdds(v){ return (isFinite(v)? v.toFixed(1) : '-'); }
+
+  // ---------------- 렌더 ----------------
+  function drawScene() {
+    // clear
+    ctx.fillStyle = '#0b0e16';
+    ctx.fillRect(0,0,canvas.width, canvas.height);
+
+    // 스케일
+    ctx.save();
+    ctx.scale(SCALE, SCALE);
+
+    // 트랙 라인
+    ctx.fillStyle = '#12203a';
+    ctx.fillRect(8, LANE_H*0.5, W-16, LANE_H*(HORSES+1));
+    ctx.strokeStyle = '#203057';
+    ctx.lineWidth = 1;
+    for (let i=1;i<=HORSES;i++){
+      const y = LANE_H*i;
+      ctx.beginPath();
+      ctx.moveTo(8, y+0.5);
+      ctx.lineTo(W-8, y+0.5);
+      ctx.stroke();
+    }
+
+    // 결승선
+    ctx.fillStyle = '#ffffff';
+    const gx = mapX(TRACK_LEN);
+    for (let i=0;i<LANE_H*(HORSES+1); i+=4) {
+      ctx.fillRect(gx, LANE_H*0.5 + i, 2, 2);
+    }
+
+    // 말
+    roster.forEach((r,idx)=>{
+      const x = mapX(r.x);
+      const y = r.y - 6;
+      // 말 몸통
+      ctx.fillStyle = r.color;
+      ctx.fillRect(x, y, 14, 8);
+      // 번호
+      ctx.fillStyle = '#0b0e16';
+      ctx.fillRect(x+4, y+2, 6, 4);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '4px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(r.no%10), x+7, y+4);
+      // 기수(작은 점)
+      ctx.fillStyle = '#ffeaa7';
+      ctx.fillRect(x+2, y-2, 3, 3);
+
+      // 진행 점/스퍼트 효과
+      if (!r.finished && r.stumble>0) {
+        ctx.fillStyle = '#ff9e9e';
+        ctx.fillRect(x-2, y+3, 2, 2);
+      }
+    });
+
+    // 상단 정보
+    ctx.fillStyle = '#c8d0ff';
+    ctx.font = '7px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(running? 'RACE RUNNING...' : 'READY', 10, 8);
+    ctx.textAlign = 'right';
+    ctx.fillText('Finish ▶', W-10, 8);
+
+    ctx.restore();
+  }
+
+  function mapX(dist) {
+    const left = 12, right = W-16;
+    return left + (right-left) * clamp(dist/TRACK_LEN, 0, 1);
+  }
+
+})();
+</script>
+</body>
+</html>
