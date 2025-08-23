@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-<title>도트 경마 v4.2 — 리얼 사운드 + Firebase 지갑 동기화</title>
+<title>도트 경마 v4.3 — 리얼 사운드 + Firebase 지갑 동기화 + 충전하기</title>
 <style>
   :root { --bg:#0b0e16; --panel:#0f1424; --line:#1f2940; --text:#c8d0ff; --title:#ffffff; --accent:#6C5CE7; --good:#9df7c7; --warn:#ffd26e; --bad:#ff7a9e; }
   html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
@@ -20,7 +20,7 @@
   button.secondary{background:#1e2a53;color:#dbe1ff}
   button.ghost{background:transparent;border:1px solid var(--line);color:var(--text)}
   button:disabled{opacity:.6;cursor:not-allowed}
-  select,input[type=number],input[type=email],input[type=password]{padding:8px 10px;border-radius:8px;border:1px solid #2a3557;background:#0d1330;color:#dbe1ff}
+  select,input[type=number],input[type=email],input[type=password],input[type=text]{padding:8px 10px;border-radius:8px;border:1px solid #2a3557;background:#0d1330;color:#dbe1ff}
   table{width:100%;border-collapse:collapse;font-size:12px}
   th,td{border-bottom:1px dashed var(--line);padding:6px 8px;text-align:center;white-space:nowrap}
   th{color:#9fb0ff}
@@ -34,11 +34,16 @@
   .hr{height:1px;background:var(--line);margin:8px 0}
   .tag{display:inline-block;padding:2px 6px;border-radius:6px;border:1px solid var(--line);background:#141a33}
   .totals{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+
+  /* 충전 모달 */
+  .modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,20,0.55); z-index:9999; }
+  .modal .box { width:min(520px, 92vw); background:#0f1424; border:1px solid #1f2940; border-radius:12px; padding:14px; }
+  .modal .row { margin-top:8px; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>도트 경마 v4.2</h1>
+  <h1>도트 경마 v4.3</h1>
 
   <div class="grid">
     <div class="panel">
@@ -48,6 +53,7 @@
         <button id="btnNew" class="secondary">다음 경주 편성</button>
         <button id="btnStart">출발!</button>
         <button id="btnSound" class="ghost">🔊 사운드 켜기</button>
+        <button id="btnCharge" class="ghost">충전하기</button>
         <div class="pill">경주번호 <span id="raceNo">1</span></div>
         <div class="pill">상태 <span id="phaseText">베팅 오픈</span> · <span id="countdown">--</span>s</div>
         <div class="pill">거리 <span id="raceMeters">-</span>m</div>
@@ -55,7 +61,7 @@
         <div class="pill">지갑 <span id="wallet" class="money">0</span> 원</div>
       </div>
 
-      <!-- 로그인 박스 (Firebase) -->
+      <!-- 로그인 박스 -->
       <div id="authBox" class="row" style="margin-top:8px;">
         <input id="email" type="email" placeholder="이메일" />
         <input id="password" type="password" placeholder="비밀번호" />
@@ -129,7 +135,27 @@
     <div id="history" class="small" style="margin-top:8px;"></div>
   </div>
 
-  <div class="hint">© 도검유트브 — 이 파일 하나로 GitHub Pages 배포 후 티스토리에 iframe으로 임베드하면 끝!</div>
+  <!-- 충전 모달 -->
+  <div id="chargeModal" class="modal">
+    <div class="box">
+      <div class="row">
+        <div class="pill">충전하기</div>
+        <div class="right"><button id="btnCloseCharge" class="ghost">닫기</button></div>
+      </div>
+      <div class="row">
+        <button id="btnDaily" class="secondary">오늘의 보너스 받기 (+1,000)</button>
+        <span id="dailyHint" class="small" style="opacity:.85;"></span>
+      </div>
+      <div class="row" style="gap:6px;">
+        <input id="couponInput" type="text" placeholder="쿠폰 코드 입력" />
+        <button id="btnCoupon" class="ghost">쿠폰 사용</button>
+        <span id="couponHint" class="small" style="opacity:.85;"></span>
+      </div>
+      <div class="hint">광고 클릭 보상은 정책 위반 위험이 커서 제공하지 않아요. 대신 출석/쿠폰/미션 보상으로 안전하게 운영해요!</div>
+    </div>
+  </div>
+
+  <div class="hint">© 도검유트브 — 이 파일 하나로 배포 후 티스토리에 iframe으로 임베드하면 끝!</div>
 </div>
 
 <!-- 게임 스크립트(비모듈) -->
@@ -175,12 +201,21 @@ const btnNew=document.getElementById('btnNew');
 const btnStart=document.getElementById('btnStart');
 const btnAdd=document.getElementById('btnAdd');
 const btnSound=document.getElementById('btnSound');
+const btnCharge=document.getElementById('btnCharge');
 const selType=document.getElementById('betType');
 const pickA=document.getElementById('pickA');
 const pickB=document.getElementById('pickB');
 const pickC=document.getElementById('pickC');
 const amount=document.getElementById('amount');
 const commentaryEl=document.getElementById('commentary');
+
+const chargeModal=document.getElementById('chargeModal');
+const btnCloseCharge=document.getElementById('btnCloseCharge');
+const btnDaily=document.getElementById('btnDaily');
+const dailyHint=document.getElementById('dailyHint');
+const btnCoupon=document.getElementById('btnCoupon');
+const couponInput=document.getElementById('couponInput');
+const couponHint=document.getElementById('couponHint');
 
 /* ===== 저장/초기 ===== */
 let wallet=Number(localStorage.getItem('wallet')||100000);
@@ -190,7 +225,7 @@ walletEl.textContent=fmt(wallet);
 raceNoEl.textContent=raceNo;
 roiEl.textContent=fmt(roiTotal);
 
-/* ===== 리얼 사운드(파일) — 필요 시 assets/audio/에 파일 업로드 ===== */
+/* ===== 리얼 사운드(파일) — assets/audio/xxxxx 업로드 필요 ===== */
 let audioCtx=null, soundEnabled=false;
 let bufGun=null, bufGallop=null, bufCrowd=null;
 let gallopSrc=null, gallopGain=null;
@@ -241,10 +276,9 @@ window.gameWallet = {
     localStorage.setItem('wallet', wallet);
   }
 };
-// 공통 지갑 처리(베팅/환불/환급 모두 여기로)
 function handleWallet(delta){
   if (window.firebaseWallet?.add){
-    window.firebaseWallet.add(delta); // 로그인 시 Firestore 반영, 게스트면 내부에서 로컬 처리
+    window.firebaseWallet.add(delta);
   } else {
     wallet = Math.max(0, wallet + delta);
     walletEl.textContent = fmt(wallet);
@@ -276,11 +310,9 @@ btnAdd.onclick=()=>{
     if (a===b||a===c||b===c) return alert('서로 다른 말로 고르기!');
     addUserPool(type,a,b,amt,c); userTickets.push({type,a,b,c,amount:amt});
   }
-  // 변경: 지갑 차감 공통 처리
   handleWallet(-amt);
   rebuildTickets(); renderPayoutPreview(); renderPoolTotals();
 };
-
 btnStart.onclick=()=>{ if(phase==='running'||phase==='parade') return; startRace(); };
 btnNew.onclick=()=>{
   if (phase==='running'||phase==='parade'){
@@ -289,6 +321,8 @@ btnNew.onclick=()=>{
   raceNo += 1; raceNoEl.textContent=raceNo; localStorage.setItem('raceNo',raceNo);
   newRace();
 };
+btnCharge.onclick=()=>{ chargeModal.style.display='flex'; };
+btnCloseCharge.onclick=()=>{ chargeModal.style.display='none'; };
 
 /* ===== 경주 흐름 ===== */
 function newRace(){
@@ -350,7 +384,6 @@ function finishRace(){
     const ret=settleTicket(t,order,pay); totalReturn+=ret;
     lines.push(`• ${descTicket(t)} → ${ret>0?('적중 '+fmt(Math.floor(ret))+'원'):'미적중'}`);
   });
-  // 변경: 환급은 공통 처리
   if (totalReturn>0){ handleWallet(Math.floor(totalReturn)); }
   const pnl=Math.floor(totalReturn-totalBet); roiTotal+=pnl; roiEl.textContent=fmt(roiTotal); localStorage.setItem('roiTotal',roiTotal);
   payoutsEl.innerHTML += `<div class="hr"></div><div class="small">${lines.join('<br>')}</div>`;
@@ -408,7 +441,7 @@ function update(){
     const a=Math.abs(Math.sin(theta));
     cornerMul *= 0.96 + 0.04*(1-a);
 
-    let v=base*cond*fatigue*kick*jitter*stumbleMul*cornerMul;
+    let v=base*cond*fatigue*kick+jitter*stumbleMul*cornerMul;
     r.dist += v;
 
     if (r.dist>=raceMeters){
@@ -535,7 +568,6 @@ function renderTable(){
 function rebuildTickets(){
   ticketsEl.innerHTML='';
   if (!userTickets.length){ ticketsEl.innerHTML='<div class="hint">베팅을 추가해줘. 하나의 경주에 여러 티켓 가능!</div>'; return; }
-  ticketsEl.querySelectorAll?.('[data-del]')?.forEach?.(()=>{});
   userTickets.forEach((t,idx)=>{
     const div=document.createElement('div'); div.className='ticket row';
     div.innerHTML=`
@@ -549,7 +581,6 @@ function rebuildTickets(){
   ticketsEl.querySelectorAll('[data-del]').forEach(btn=>{
     btn.onclick=()=>{
       const i=Number(btn.dataset.del);
-      // 변경: 환불도 공통 처리
       handleWallet(userTickets[i].amount);
       userTickets.splice(i,1); rebuildTickets(); renderPayoutPreview(); renderPoolTotals();
     }
@@ -581,24 +612,19 @@ function draw(){
   ctx.fillStyle='#0b0e16'; ctx.fillRect(0,0,canvas.width,canvas.height);
   ctx.save(); ctx.scale(SCALE,SCALE);
 
-  // 잔디
   ctx.fillStyle='#114a1d';
   ctx.beginPath(); ctx.ellipse(CX, CY, RX+18, RY+18, 0, 0, Math.PI*2); ctx.fill();
 
-  // 트랙
   drawTrack();
 
-  // 거리 표지
   [800,1000,1100,1200,1400,1500].forEach(m=>{
     const ang = normAngle(FINISH_ANG - 2*Math.PI*(m/lapMeters));
     drawDistanceSign(ang, m);
   });
 
-  // 결승대/게이트
   drawFinishPost(FINISH_ANG);
   if (phase==='betting'||phase==='closing'||phase==='parade') drawGate(startAng);
 
-  // 말/기수
   const N=roster.length;
   roster.forEach((r,idx)=>{
     let ang = (phase==='parade') ? startAng + Math.sin((performance.now()/120)+idx)*0.02
@@ -612,7 +638,6 @@ function draw(){
     if (!r.finished && r.stumble>0) px(Math.round(x)-3, Math.round(y)+2, 2, 2, '#ff9e9e');
   });
 
-  // HUD
   smallText(phase==='parade'?'출발 준비':phase==='running'?'RACE RUNNING':phase==='betting'?'BETTING OPEN':phase==='closing'?'CLOSING':'RESULT', 6, 8, '#c8d0ff');
   smallText(`${raceMeters}m`, W-36, 8, '#ffd26e');
 
@@ -700,7 +725,7 @@ function renderHistory(){
 })();
 </script>
 
-<!-- Firebase 모듈(로그인/지갑 동기화) -->
+<!-- Firebase 모듈(로그인/지갑 동기화 + 충전하기) -->
 <script type="module">
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js';
   import {
@@ -711,8 +736,9 @@ function renderHistory(){
     getFirestore, doc, getDoc, setDoc, updateDoc,
     serverTimestamp, enableIndexedDbPersistence, increment, onSnapshot
   } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
+  import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-functions.js';
 
-  // 네가 준 config
+  /* 네 Firebase 구성 */
   const firebaseConfig = {
     apiKey: "AIzaSyCDAkMPPoAKYZj4dS74eLJM0fuko_tcvhE",
     authDomain: "authentication-2a265.firebaseapp.com",
@@ -726,6 +752,7 @@ function renderHistory(){
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   const db   = getFirestore(app);
+  const functions = getFunctions(app);
   try { await enableIndexedDbPersistence(db); } catch(_) {}
 
   // DOM
@@ -736,12 +763,18 @@ function renderHistory(){
   const btnLogout  = document.getElementById('btnLogout');
   const authHint   = document.getElementById('authHint');
 
-  // 로컬 캐시 지갑(게스트용)
+  const btnDaily   = document.getElementById('btnDaily');
+  const dailyHint  = document.getElementById('dailyHint');
+  const btnCoupon  = document.getElementById('btnCoupon');
+  const couponInput= document.getElementById('couponInput');
+  const couponHint = document.getElementById('couponHint');
+
+  // 로컬 지갑(게스트용 캐시)
   let uid = null;
   let localWallet = Number(localStorage.getItem('wallet') || 100000);
   if (!Number.isFinite(localWallet) || localWallet <= 0) localWallet = 100000;
 
-  // 게임에서 호출하는 공통 API
+  // 게임 연동 API
   window.firebaseWallet = {
     add: async (delta) => {
       if (!uid) {
@@ -770,6 +803,10 @@ function renderHistory(){
     get: () => localWallet
   };
 
+  // Functions(서버측) 콜러(배포 전이면 에러 → 클라이언트 폴백)
+  const callDaily   = httpsCallable(functions, 'walletTopupDaily');
+  const callCoupon  = httpsCallable(functions, 'walletRedeemCoupon');
+
   // 로그인 상태 감시 + 지갑 실시간 구독
   let unsubWallet = null;
   onAuthStateChanged(auth, async (user) => {
@@ -783,6 +820,7 @@ function renderHistory(){
       emailEl.style.display   = 'none';
       passwordEl.style.display= 'none';
       authHint.textContent    = `${user.email} 로그인됨`;
+      btnDaily.disabled = false; btnCoupon.disabled = false;
 
       const ref = doc(db, 'users', uid);
       const snap = await getDoc(ref);
@@ -797,6 +835,9 @@ function renderHistory(){
           window.gameWallet?.setFromCloud(localWallet);
         }
       });
+
+      // 남은 시간 힌트 갱신(클라이언트 추정)
+      updateDailyHintClient();
     } else {
       uid = null;
       btnLogout.style.display = 'none';
@@ -805,7 +846,9 @@ function renderHistory(){
       emailEl.style.display   = '';
       passwordEl.style.display= '';
       authHint.textContent    = '이메일/비번 로그인하면 지갑이 클라우드에 저장돼요.';
+      btnDaily.disabled = true; btnCoupon.disabled = true;
       window.gameWallet?.setFromCloud(localWallet);
+      dailyHint.textContent = '로그인하면 출석 보너스 이용 가능';
     }
   });
 
@@ -825,6 +868,66 @@ function renderHistory(){
     catch (e) { alert('로그인 실패: ' + e.message); }
   };
   btnLogout.onclick = async () => { try { await signOut(auth); } catch(_) {} };
+
+  // 출석 보너스: 서버 우선, 실패 시 클라 폴백
+  btnDaily.onclick = async () => {
+    if (!uid) return alert('로그인해줘!');
+    try {
+      const res = await callDaily({});
+      if (res.data?.ok) {
+        dailyHint.textContent = '지급 완료! 잠시 후 잔액이 반영돼요.';
+      }
+    } catch (e) {
+      // 서버 미배포 등 에러 → 프론트 폴백(테스트용)
+      try {
+        await claimDailyClient();
+      } catch (e2) {
+        alert(e2.message || '보너스 수령 실패');
+      }
+    }
+  };
+
+  // 쿠폰 사용: 서버 함수 필수
+  btnCoupon.onclick = async () => {
+    if (!uid) return alert('로그인해줘!');
+    const code = (couponInput.value||'').trim();
+    if (!code) return alert('쿠폰 코드를 입력해줘!');
+    try {
+      const res = await callCoupon({ code });
+      if (res.data?.ok) {
+        couponHint.textContent = '쿠폰 지급 완료! 잔액이 반영돼요.';
+        couponInput.value = '';
+      } else {
+        alert('쿠폰 실패');
+      }
+    } catch (e) {
+      alert(e.message || '쿠폰 실패');
+    }
+  };
+
+  // 클라이언트 폴백: Firestore 타임스탬프 기반(완전 보안X, 테스트/초기 운영용)
+  async function claimDailyClient(){
+    const ref = doc(db, 'users', uid);
+    const snap = await getDoc(ref);
+    const data = snap.data() || {};
+    const last = data.lastClaimAt?.toMillis?.() || 0;
+    const now  = Date.now();
+    const DAY  = 24*60*60*1000;
+    const left = Math.max(0, DAY - (now - last));
+    if (left > 0) {
+      const h = Math.ceil(left/3600000);
+      dailyHint.textContent = `다음 보너스까지 약 ${h}시간`;
+      throw new Error('아직 24시간이 안 지났어');
+    }
+    await window.firebaseWallet.add(1000); // 잔액 증가(실시간 구독으로 반영)
+    await setDoc(ref, { lastClaimAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
+    dailyHint.textContent = '지급 완료!';
+  }
+
+  function updateDailyHintClient(){
+    // 단순 안내(정확한 서버 시간 보장은 Functions 사용 권장)
+    dailyHint.textContent = '하루 1회 1,000원 지급';
+  }
 </script>
 </body>
 </html>
