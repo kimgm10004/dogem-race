@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-<title>도트 경마 v4.2 — 리얼 사운드 적용</title>
+<title>도트 경마 v4.2 — 리얼 사운드 + Firebase 지갑 동기화</title>
 <style>
   :root { --bg:#0b0e16; --panel:#0f1424; --line:#1f2940; --text:#c8d0ff; --title:#ffffff; --accent:#6C5CE7; --good:#9df7c7; --warn:#ffd26e; --bad:#ff7a9e; }
   html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
@@ -14,13 +14,13 @@
   canvas{width:100%;height:auto;display:block;image-rendering:pixelated;border-radius:8px;border:1px solid var(--line)}
   .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .row>*{flex:1 1 auto}
-  .pill{padding:4px 10px;border-radius:999px;background:#131a33;border:1px solid var(--line);font-size:12px}
+  .pill{padding:6px 10px;border-radius:999px;background:#131a33;border:1px solid #1f2940;font-size:12px}
   .money{font-weight:700;color:var(--warn)}
   button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 12px;cursor:pointer}
   button.secondary{background:#1e2a53;color:#dbe1ff}
   button.ghost{background:transparent;border:1px solid var(--line);color:var(--text)}
   button:disabled{opacity:.6;cursor:not-allowed}
-  select,input[type=number]{width:100%;background:#0d1330;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+  select,input[type=number],input[type=email],input[type=password]{padding:8px 10px;border-radius:8px;border:1px solid #2a3557;background:#0d1330;color:#dbe1ff}
   table{width:100%;border-collapse:collapse;font-size:12px}
   th,td{border-bottom:1px dashed var(--line);padding:6px 8px;text-align:center;white-space:nowrap}
   th{color:#9fb0ff}
@@ -54,7 +54,18 @@
         <div class="pill">출전 <span id="fieldSize">-</span>두</div>
         <div class="pill">지갑 <span id="wallet" class="money">0</span> 원</div>
       </div>
-      <div class="hint">사운드는 첫 클릭 후 재생돼. 출발 전엔 게이트 대기, 출발 순간 총성/발굽, 결승 땐 관중 환호가 커졌다가 서서히 줄어들어.</div>
+
+      <!-- 로그인 박스 (Firebase) -->
+      <div id="authBox" class="row" style="margin-top:8px;">
+        <input id="email" type="email" placeholder="이메일" />
+        <input id="password" type="password" placeholder="비밀번호" />
+        <button id="btnSignup" class="ghost">회원가입</button>
+        <button id="btnLogin" class="ghost">로그인</button>
+        <button id="btnLogout" class="ghost" style="display:none;">로그아웃</button>
+        <span id="authHint" class="small right" style="opacity:.8;"></span>
+      </div>
+
+      <div class="hint">사운드는 첫 클릭 후 재생돼. 출발 전 게이트 대기, 출발 순간 총성/발굽, 결승 땐 관중 환호가 커졌다가 서서히 줄어들어.</div>
     </div>
 
     <div class="panel">
@@ -121,6 +132,7 @@
   <div class="hint">© 도검유트브 — 이 파일 하나로 GitHub Pages 배포 후 티스토리에 iframe으로 임베드하면 끝!</div>
 </div>
 
+<!-- 게임 스크립트(비모듈) -->
 <script>
 (()=> {
 /* ===== 기본 상수/유틸 ===== */
@@ -178,25 +190,7 @@ walletEl.textContent=fmt(wallet);
 raceNoEl.textContent=raceNo;
 roiEl.textContent=fmt(roiTotal);
 
-// URL 파라미터로 지갑 설정/리셋/DEV
-const params = new URLSearchParams(location.search);
-if (params.get('reset')==='1') localStorage.removeItem('wallet');
-if (params.has('wallet')) {
-  const w=parseInt(params.get('wallet'),10);
-  if (Number.isFinite(w)) localStorage.setItem('wallet', Math.max(0,w));
-}
-wallet = Number(localStorage.getItem('wallet')||100000);
-if (!Number.isFinite(wallet) || wallet<=0) wallet = 100000;
-localStorage.setItem('wallet', wallet);
-walletEl.textContent = fmt(wallet);
-if (params.get('dev')==='1'){
-  walletEl.title='더블클릭: +100,000 충전';
-  walletEl.addEventListener('dblclick', ()=>{
-    wallet += 100000; walletEl.textContent = fmt(wallet); localStorage.setItem('wallet',wallet);
-  });
-}
-
-/* ===== WebAudio(리얼 SFX) ===== */
+/* ===== 리얼 사운드(파일) — 필요 시 assets/audio/에 파일 업로드 ===== */
 let audioCtx=null, soundEnabled=false;
 let bufGun=null, bufGallop=null, bufCrowd=null;
 let gallopSrc=null, gallopGain=null;
@@ -204,120 +198,26 @@ let crowdSrc=null, crowdGain=null;
 let sfxLoaded=false;
 
 const ASSET = {
-  gun: [
-    'assets/audio/gunshot.mp3',
-    'assets/audio/gunshot.ogg'
-  ],
-  gallop: [
-    'assets/audio/gallop_loop.ogg',
-    'assets/audio/gallop_loop.mp3'
-  ],
-  crowd: [
-    'assets/audio/crowd_loop.ogg',
-    'assets/audio/crowd_loop.mp3'
-  ]
+  gun: ['assets/audio/gunshot.mp3','assets/audio/gunshot.ogg'],
+  gallop: ['assets/audio/gallop_loop.ogg','assets/audio/gallop_loop.mp3'],
+  crowd: ['assets/audio/crowd_loop.ogg','assets/audio/crowd_loop.mp3']
 };
 
-function getCtx(){
-  if (!soundEnabled) return null;
-  if (!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-  if (audioCtx.state==='suspended') audioCtx.resume();
-  return audioCtx;
-}
-async function fetchAsBuffer(url){
-  const res = await fetch(url, { mode:'cors' });
-  if (!res.ok) throw new Error('fetch fail: '+url);
-  const arr = await res.arrayBuffer();
-  const ctx = getCtx();
-  return await ctx.decodeAudioData(arr);
-}
-async function loadFirstAvailable(list){
-  for (const url of list){
-    try { return await fetchAsBuffer(url); } catch(e){ /* try next */ }
-  }
-  throw new Error('no playable src: '+list.join(','));
-}
-async function loadSfxOnce(){
-  if (sfxLoaded || !soundEnabled) return;
-  try{
-    [bufGun, bufGallop, bufCrowd] = await Promise.all([
-      loadFirstAvailable(ASSET.gun),
-      loadFirstAvailable(ASSET.gallop),
-      loadFirstAvailable(ASSET.crowd)
-    ]);
-    sfxLoaded=true;
-    if (phase==='parade' || phase==='betting' || phase==='closing') startCrowd(0.18);
-  }catch(e){
-    console.warn('SFX load failed:', e);
-  }
-}
-function setSound(on){
-  soundEnabled=on;
-  btnSound.textContent = on? '🔇 사운드 끄기' : '🔊 사운드 켜기';
-  if (!on){ stopGallop(); stopCrowd(); }
-  if (on){ getCtx(); loadSfxOnce(); }
-}
-btnSound.onclick = ()=> setSound(!soundEnabled);
-canvas.addEventListener('pointerdown', ()=>{ if(soundEnabled) { getCtx(); loadSfxOnce(); } });
-btnStart.addEventListener('click', ()=>{ if(soundEnabled) { getCtx(); loadSfxOnce(); } });
+function getCtx(){ if(!soundEnabled) return null; if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); return audioCtx; }
+async function fetchAsBuffer(url){ const res=await fetch(url,{mode:'cors'}); if(!res.ok) throw new Error('fetch fail '+url); const arr=await res.arrayBuffer(); const ctx=getCtx(); return await ctx.decodeAudioData(arr); }
+async function loadFirstAvailable(list){ for(const url of list){ try{ return await fetchAsBuffer(url);}catch(e){} } throw new Error('no playable src'); }
+async function loadSfxOnce(){ if(sfxLoaded||!soundEnabled) return; try{ [bufGun,bufGallop,bufCrowd]=await Promise.all([loadFirstAvailable(ASSET.gun),loadFirstAvailable(ASSET.gallop),loadFirstAvailable(ASSET.crowd)]); sfxLoaded=true; }catch(e){ console.warn('SFX load failed:',e);} }
+function setSound(on){ soundEnabled=on; btnSound.textContent=on?'🔇 사운드 끄기':'🔊 사운드 켜기'; if(!on){ stopGallop(); stopCrowd(); } if(on){ getCtx(); loadSfxOnce(); } }
+btnSound.onclick=()=>setSound(!soundEnabled);
+canvas.addEventListener('pointerdown',()=>{ if(soundEnabled){ getCtx(); loadSfxOnce(); } });
+btnStart.addEventListener('click',()=>{ if(soundEnabled){ getCtx(); loadSfxOnce(); } });
 
-function playGunShot(){
-  if (!soundEnabled || !bufGun) return;
-  const ctx=getCtx(); if(!ctx) return;
-  const src=ctx.createBufferSource();
-  const g=ctx.createGain(); g.gain.value=0.9;
-  src.buffer=bufGun; src.connect(g).connect(ctx.destination); src.start();
-}
-function startGallop(){
-  if (!soundEnabled || gallopSrc || !bufGallop) return;
-  const ctx=getCtx(); if(!ctx) return;
-  gallopSrc = ctx.createBufferSource();
-  gallopSrc.buffer = bufGallop;
-  gallopSrc.loop = true;
-  // 필요하면 루프 클릭 제거
-  // gallopSrc.loopStart = 0.02; gallopSrc.loopEnd = bufGallop.duration - 0.02;
-  gallopGain = ctx.createGain(); gallopGain.gain.value=0.28;
-  gallopSrc.connect(gallopGain).connect(ctx.destination);
-  gallopSrc.start();
-}
-function stopGallop(){
-  if (!gallopSrc) return;
-  try{
-    const ctx=getCtx();
-    gallopGain.gain.cancelScheduledValues(ctx.currentTime);
-    gallopGain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+0.5);
-    gallopSrc.stop(ctx.currentTime+0.55);
-  }catch(_) {}
-  gallopSrc=null; gallopGain=null;
-}
-function startCrowd(level=0.2){
-  if (!soundEnabled || crowdSrc || !bufCrowd) return;
-  const ctx=getCtx(); if(!ctx) return;
-  crowdSrc=ctx.createBufferSource();
-  crowdSrc.buffer=bufCrowd; crowdSrc.loop=true;
-  crowdGain=ctx.createGain(); crowdGain.gain.value=0.0001;
-  crowdSrc.connect(crowdGain).connect(ctx.destination);
-  crowdSrc.start();
-  fadeCrowd(level,0.8);
-}
-function fadeCrowd(level=0.3, sec=0.6){
-  if (!crowdGain) return;
-  const ctx=getCtx(); if(!ctx) return;
-  const now=ctx.currentTime;
-  crowdGain.gain.cancelScheduledValues(now);
-  crowdGain.gain.setValueAtTime(Math.max(0.0001,crowdGain.gain.value), now);
-  crowdGain.gain.exponentialRampToValueAtTime(Math.max(0.0001,level), now+sec);
-}
-function stopCrowd(){
-  if (!crowdSrc || !crowdGain) return;
-  try{
-    const ctx=getCtx(); const now=ctx.currentTime;
-    crowdGain.gain.cancelScheduledValues(now);
-    crowdGain.gain.exponentialRampToValueAtTime(0.0001, now+0.6);
-    crowdSrc.stop(now+0.7);
-  }catch(_) {}
-  crowdSrc=null; crowdGain=null;
-}
+function playGunShot(){ if(!soundEnabled||!bufGun) return; const ctx=getCtx(); if(!ctx) return; const src=ctx.createBufferSource(); const g=ctx.createGain(); g.gain.value=0.9; src.buffer=bufGun; src.connect(g).connect(ctx.destination); src.start(); }
+function startGallop(){ if(!soundEnabled||gallopSrc||!bufGallop) return; const ctx=getCtx(); if(!ctx) return; gallopSrc=ctx.createBufferSource(); gallopSrc.buffer=bufGallop; gallopSrc.loop=true; gallopGain=ctx.createGain(); gallopGain.gain.value=0.28; gallopSrc.connect(gallopGain).connect(ctx.destination); gallopSrc.start(); }
+function stopGallop(){ if(!gallopSrc) return; try{ const ctx=getCtx(); gallopGain.gain.cancelScheduledValues(ctx.currentTime); gallopGain.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.5); gallopSrc.stop(ctx.currentTime+0.55);}catch(_){} gallopSrc=null; gallopGain=null; }
+function startCrowd(level=0.2){ if(!soundEnabled||crowdSrc||!bufCrowd) return; const ctx=getCtx(); if(!ctx) return; crowdSrc=ctx.createBufferSource(); crowdSrc.buffer=bufCrowd; crowdSrc.loop=true; crowdGain=ctx.createGain(); crowdGain.gain.value=0.0001; crowdSrc.connect(crowdGain).connect(ctx.destination); crowdSrc.start(); fadeCrowd(level,0.8); }
+function fadeCrowd(level=0.3,sec=0.6){ if(!crowdGain) return; const ctx=getCtx(); if(!ctx) return; const now=ctx.currentTime; crowdGain.gain.cancelScheduledValues(now); crowdGain.gain.setValueAtTime(Math.max(0.0001,crowdGain.gain.value),now); crowdGain.gain.exponentialRampToValueAtTime(Math.max(0.0001,level),now+sec); }
+function stopCrowd(){ if(!crowdSrc||!crowdGain) return; try{ const ctx=getCtx(); const now=ctx.currentTime; crowdGain.gain.cancelScheduledValues(now); crowdGain.gain.exponentialRampToValueAtTime(0.0001,now+0.6); crowdSrc.stop(now+0.7);}catch(_){} crowdSrc=null; crowdGain=null; }
 
 /* ===== 데이터/상태 ===== */
 const namesA=['은하','폭풍','달빛','천둥','유니','블레이즈','다크','초신성','스텔라','라이트','제트','린드'];
@@ -333,6 +233,25 @@ let raceMeters=1200; const lapMeters=1600; let startAng=0;
 
 const FIXED=1000/60; let last=performance.now(), acc=0;
 
+/* ===== 게임↔클라우드 지갑 브리지 ===== */
+window.gameWallet = {
+  setFromCloud(value){
+    wallet = Math.max(0, Number(value)||0);
+    walletEl.textContent = fmt(wallet);
+    localStorage.setItem('wallet', wallet);
+  }
+};
+// 공통 지갑 처리(베팅/환불/환급 모두 여기로)
+function handleWallet(delta){
+  if (window.firebaseWallet?.add){
+    window.firebaseWallet.add(delta); // 로그인 시 Firestore 반영, 게스트면 내부에서 로컬 처리
+  } else {
+    wallet = Math.max(0, wallet + delta);
+    walletEl.textContent = fmt(wallet);
+    localStorage.setItem('wallet', wallet);
+  }
+}
+
 /* ===== 초기화 ===== */
 renderHistory();
 newRace();
@@ -345,6 +264,7 @@ btnAdd.onclick=()=>{
   const amt=Math.max(100, Math.floor(Number(amount.value)/100)*100);
   if (!amt||wallet<amt) return alert('베팅 금액 확인!');
   const N=roster.length;
+
   if (type==='WIN'||type==='PLACE'){
     if(!inRange(a,0,N-1)) return alert('말 번호 확인!');
     addUserPool(type,a,null,amt); userTickets.push({type,a,amount:amt});
@@ -356,13 +276,12 @@ btnAdd.onclick=()=>{
     if (a===b||a===c||b===c) return alert('서로 다른 말로 고르기!');
     addUserPool(type,a,b,amt,c); userTickets.push({type,a,b,c,amount:amt});
   }
-  wallet -= amt; walletEl.textContent=fmt(wallet); localStorage.setItem('wallet',wallet);
+  // 변경: 지갑 차감 공통 처리
+  handleWallet(-amt);
   rebuildTickets(); renderPayoutPreview(); renderPoolTotals();
 };
-btnStart.onclick=()=>{
-  if (phase==='running'||phase==='parade') return;
-  startRace();
-};
+
+btnStart.onclick=()=>{ if(phase==='running'||phase==='parade') return; startRace(); };
 btnNew.onclick=()=>{
   if (phase==='running'||phase==='parade'){
     if(!confirm('진행 중인 경주를 포기하고 새로 편성할까요?')) return;
@@ -431,7 +350,8 @@ function finishRace(){
     const ret=settleTicket(t,order,pay); totalReturn+=ret;
     lines.push(`• ${descTicket(t)} → ${ret>0?('적중 '+fmt(Math.floor(ret))+'원'):'미적중'}`);
   });
-  if (totalReturn>0){ wallet+=Math.floor(totalReturn); walletEl.textContent=fmt(wallet); localStorage.setItem('wallet',wallet); }
+  // 변경: 환급은 공통 처리
+  if (totalReturn>0){ handleWallet(Math.floor(totalReturn)); }
   const pnl=Math.floor(totalReturn-totalBet); roiTotal+=pnl; roiEl.textContent=fmt(roiTotal); localStorage.setItem('roiTotal',roiTotal);
   payoutsEl.innerHTML += `<div class="hr"></div><div class="small">${lines.join('<br>')}</div>`;
 
@@ -615,6 +535,7 @@ function renderTable(){
 function rebuildTickets(){
   ticketsEl.innerHTML='';
   if (!userTickets.length){ ticketsEl.innerHTML='<div class="hint">베팅을 추가해줘. 하나의 경주에 여러 티켓 가능!</div>'; return; }
+  ticketsEl.querySelectorAll?.('[data-del]')?.forEach?.(()=>{});
   userTickets.forEach((t,idx)=>{
     const div=document.createElement('div'); div.className='ticket row';
     div.innerHTML=`
@@ -628,7 +549,8 @@ function rebuildTickets(){
   ticketsEl.querySelectorAll('[data-del]').forEach(btn=>{
     btn.onclick=()=>{
       const i=Number(btn.dataset.del);
-      wallet += userTickets[i].amount; walletEl.textContent=fmt(wallet); localStorage.setItem('wallet',wallet);
+      // 변경: 환불도 공통 처리
+      handleWallet(userTickets[i].amount);
       userTickets.splice(i,1); rebuildTickets(); renderPayoutPreview(); renderPoolTotals();
     }
   });
@@ -747,7 +669,6 @@ function drawHorseSprite(x,y,color){
 }
 
 /* ===== 좌표/보조 ===== */
-function posOnOval(theta){ return { x: CX + RX*Math.cos(theta), y: CY + RY*Math.sin(theta) }; }
 function ovalOffsetPos(theta, offset){
   const px0=RX*Math.cos(theta), py0=RY*Math.sin(theta);
   const tx=-RX*Math.sin(theta), ty=RY*Math.cos(theta); let nx=ty, ny=-tx;
@@ -762,73 +683,6 @@ function syncControls(){
   const canStart=!(phase==='running'||phase==='result'||phase==='parade');
   btnStart.disabled=!canStart;
 }
-
-/* ===== 배당/정산/표 ===== */
-function computePayouts(order){
-  const first=order[0], second=order[1], third=order[2];
-  const sumObj=o=>Object.values(o).reduce((a,b)=>a+b,0);
-  const winTotal=pools.win.reduce((a,b)=>a+b.amount,0);
-  const winRate=(winTotal*(1-TAKE))/(pools.win[first].amount||0.001);
-  const placeTotal=pools.place.reduce((a,b)=>a+b.amount,0);
-  const p1=(placeTotal*(1-TAKE)/3)/(pools.place[first].amount||0.001);
-  const p2=(placeTotal*(1-TAKE)/3)/(pools.place[second].amount||0.001);
-  const p3=(placeTotal*(1-TAKE)/3)/(pools.place[third].amount||0.001);
-  const quinTotal=sumObj(pools.quin); const keyQ=first<second?`${first}-${second}`:`${second}-${first}`;
-  const quinRate=(quinTotal*(1-TAKE))/(pools.quin[keyQ]||0.001);
-  const exactTotal=sumObj(pools.exact); const keyE=`${first}>${second}`;
-  const exactRate=(exactTotal*(1-TAKE))/(pools.exact[keyE]||0.001);
-  const pqTotal=sumObj(pools.placeq);
-  const keysPQ=[
-    first<second?`${first}-${second}`:`${second}-${first}`,
-    first<third?`${first}-${third}`:`${third}-${first}`,
-    second<third?`${second}-${third}`:`${third}-${second}`
-  ];
-  const pqOn=keysPQ.reduce((s,k)=>s+(pools.placeq[k]||0),0)||0.001;
-  const pqRate=(pqTotal*(1-TAKE))/pqOn;
-  const trioTotal=sumObj(pools.trio); const keyT=sortedKey(first,second,third);
-  const trioRate=(trioTotal*(1-TAKE))/(pools.trio[keyT]||0.001);
-  const trifTotal=sumObj(pools.trifecta); const keyTf=`${first}>${second}>${third}`;
-  const trifRate=(trifTotal*(1-TAKE))/(pools.trifecta[keyTf]||0.001);
-  return { win:winRate, place:[p1,p2,p3], quin:quinRate, exact:exactRate, placeq:pqRate, trio:trioRate, trifecta:trifRate };
-}
-function settleTicket(t, order, pay){
-  const first=order[0], second=order[1], third=order[2];
-  if (t.type==='WIN') return (t.a===first)? t.amount*Math.max(1,pay.win) : 0;
-  if (t.type==='PLACE'){
-    if (t.a===first) return t.amount*Math.max(1,pay.place[0]);
-    if (t.a===second) return t.amount*Math.max(1,pay.place[1]);
-    if (t.a===third) return t.amount*Math.max(1,pay.place[2]);
-    return 0;
-  }
-  if (t.type==='QUINELLA'){ const [i,j]=t.a<t.b?[t.a,t.b]:[t.b,t.a]; const [fi,fj]=first<second?[first,second]:[second,first]; return (i===fi&&j===fj)? t.amount*Math.max(1,pay.quin||0) : 0; }
-  if (t.type==='EXACTA') return (t.a===first&&t.b===second)? t.amount*Math.max(1,pay.exact||0) : 0;
-  if (t.type==='PLACEQ'){ const s=new Set([first,second,third]); return (s.has(t.a)&&s.has(t.b))? t.amount*Math.max(1,pay.placeq||0) : 0; }
-  if (t.type==='TRIO'){ const k=sortedKey(t.a,t.b,t.c); return (k===sortedKey(first,second,third))? t.amount*Math.max(1,pay.trio||0) : 0; }
-  if (t.type==='TRIFECTA') return (t.a===first&&t.b===second&&t.c===third)? t.amount*Math.max(1,pay.trifecta||0) : 0;
-  return 0;
-}
-function showPayouts(pay,order){
-  const first=order[0], second=order[1], third=order[2]; const nm=i=>`#${roster[i].no}`;
-  payoutsEl.innerHTML = `
-    <div class="row small">
-      <div class="tag">단승식 ${nm(first)}</div><div class="odds">${fmtOdds(pay.win)}</div>
-      <div class="tag">연승식 ${nm(first)}</div><div class="odds">${fmtOdds(pay.place[0])}</div>
-      <div class="tag">연승식 ${nm(second)}</div><div class="odds">${fmtOdds(pay.place[1])}</div>
-      <div class="tag">연승식 ${nm(third)}</div><div class="odds">${fmtOdds(pay.place[2])}</div>
-    </div>
-    <div class="row small" style="margin-top:6px;">
-      <div class="tag">복승식 ${nm(first)}-${nm(second)}</div><div class="odds">${fmtOdds(pay.quin)}</div>
-      <div class="tag">쌍승식 ${nm(first)}>${nm(second)}</div><div class="odds">${fmtOdds(pay.exact)}</div>
-    </div>
-    <div class="row small" style="margin-top:6px;">
-      <div class="tag">복연승식 (Top3 임의 2두)</div><div class="odds">${fmtOdds(pay.placeq)}</div>
-      <div class="tag">삼복승식 (Top3 무순)</div><div class="odds">${fmtOdds(pay.trio)}</div>
-      <div class="tag">삼쌍승식 ${nm(first)}>${nm(second)}>${nm(third)}</div><div class="odds">${fmtOdds(pay.trifecta)}</div>
-    </div>
-  `;
-}
-
-/* ===== 히스토리/보조 ===== */
 function renderHistory(){
   if (!history.length){ historyEl.innerHTML='<div class="hint">아직 기록이 없어요.</div>'; return; }
   historyEl.innerHTML = history.map(h=>{
@@ -836,14 +690,141 @@ function renderHistory(){
     return `<div class="row small">
       <div class="pill">R${h.raceNo}</div>
       <div>${h.time}</div>
-      <div>${h.meters}m / ${h.field}두</div>
+      <div>${h.meters||'?'}m / ${h.field||'?'}두</div>
       <div>1-3위: #${(h.order[0]??-1)+1} / #${(h.order[1]??-1)+1} / #${(h.order[2]??-1)+1}</div>
-      <div>베팅 ${fmt(h.totalBet)}원 → 환급 ${fmt(h.totalReturn)}원</div>
-      <div style="${sign}">손익 ${fmt(h.pnl)}원</div>
+      <div>베팅 ${fmt(h.totalBet||0)}원 → 환급 ${fmt(h.totalReturn||0)}원</div>
+      <div style="${sign}">손익 ${fmt(h.pnl||0)}원</div>
     </div>`;
   }).join('');
 }
 })();
+</script>
+
+<!-- Firebase 모듈(로그인/지갑 동기화) -->
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js';
+  import {
+    getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
+    signInWithEmailAndPassword, signOut
+  } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js';
+  import {
+    getFirestore, doc, getDoc, setDoc, updateDoc,
+    serverTimestamp, enableIndexedDbPersistence, increment, onSnapshot
+  } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
+
+  // 네가 준 config
+  const firebaseConfig = {
+    apiKey: "AIzaSyCDAkMPPoAKYZj4dS74eLJM0fuko_tcvhE",
+    authDomain: "authentication-2a265.firebaseapp.com",
+    projectId: "authentication-2a265",
+    storageBucket: "authentication-2a265.firebasestorage.app",
+    messagingSenderId: "710116433234",
+    appId: "1:710116433234:web:7d0e4ba9ddd1b13be72e8b",
+    measurementId: "G-MTKTT6KRVP"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db   = getFirestore(app);
+  try { await enableIndexedDbPersistence(db); } catch(_) {}
+
+  // DOM
+  const emailEl    = document.getElementById('email');
+  const passwordEl = document.getElementById('password');
+  const btnSignup  = document.getElementById('btnSignup');
+  const btnLogin   = document.getElementById('btnLogin');
+  const btnLogout  = document.getElementById('btnLogout');
+  const authHint   = document.getElementById('authHint');
+
+  // 로컬 캐시 지갑(게스트용)
+  let uid = null;
+  let localWallet = Number(localStorage.getItem('wallet') || 100000);
+  if (!Number.isFinite(localWallet) || localWallet <= 0) localWallet = 100000;
+
+  // 게임에서 호출하는 공통 API
+  window.firebaseWallet = {
+    add: async (delta) => {
+      if (!uid) {
+        localWallet = Math.max(0, localWallet + delta);
+        localStorage.setItem('wallet', localWallet);
+        window.gameWallet?.setFromCloud(localWallet);
+        return;
+      }
+      const ref = doc(db, 'users', uid);
+      await updateDoc(ref, { wallet: increment(delta), updatedAt: serverTimestamp() })
+        .catch(async () => {
+          await setDoc(ref, { wallet: localWallet ?? 100000, updatedAt: serverTimestamp() }, { merge: true });
+          await updateDoc(ref, { wallet: increment(delta), updatedAt: serverTimestamp() });
+        });
+    },
+    set: async (value) => {
+      if (!uid) {
+        localWallet = Math.max(0, Number(value)||0);
+        localStorage.setItem('wallet', localWallet);
+        window.gameWallet?.setFromCloud(localWallet);
+        return;
+      }
+      const ref = doc(db, 'users', uid);
+      await setDoc(ref, { wallet: Math.max(0, Number(value)||0), updatedAt: serverTimestamp() }, { merge: true });
+    },
+    get: () => localWallet
+  };
+
+  // 로그인 상태 감시 + 지갑 실시간 구독
+  let unsubWallet = null;
+  onAuthStateChanged(auth, async (user) => {
+    if (unsubWallet) { unsubWallet(); unsubWallet = null; }
+
+    if (user) {
+      uid = user.uid;
+      btnLogout.style.display = '';
+      btnLogin.style.display  = 'none';
+      btnSignup.style.display = 'none';
+      emailEl.style.display   = 'none';
+      passwordEl.style.display= 'none';
+      authHint.textContent    = `${user.email} 로그인됨`;
+
+      const ref = doc(db, 'users', uid);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        await setDoc(ref, { wallet: localWallet ?? 100000, updatedAt: serverTimestamp() }, { merge: true });
+      }
+      unsubWallet = onSnapshot(ref, (s) => {
+        const data = s.data() || {};
+        if (typeof data.wallet === 'number') {
+          localWallet = data.wallet;
+          localStorage.setItem('wallet', localWallet);
+          window.gameWallet?.setFromCloud(localWallet);
+        }
+      });
+    } else {
+      uid = null;
+      btnLogout.style.display = 'none';
+      btnLogin.style.display  = '';
+      btnSignup.style.display = '';
+      emailEl.style.display   = '';
+      passwordEl.style.display= '';
+      authHint.textContent    = '이메일/비번 로그인하면 지갑이 클라우드에 저장돼요.';
+      window.gameWallet?.setFromCloud(localWallet);
+    }
+  });
+
+  // 버튼
+  btnSignup.onclick = async () => {
+    const email = emailEl.value.trim();
+    const pw    = passwordEl.value.trim();
+    if (!email || !pw) return alert('이메일/비번 입력!');
+    try { await createUserWithEmailAndPassword(auth, email, pw); }
+    catch (e) { alert('회원가입 실패: ' + e.message); }
+  };
+  btnLogin.onclick = async () => {
+    const email = emailEl.value.trim();
+    const pw    = passwordEl.value.trim();
+    if (!email || !pw) return alert('이메일/비번 입력!');
+    try { await signInWithEmailAndPassword(auth, email, pw); }
+    catch (e) { alert('로그인 실패: ' + e.message); }
+  };
+  btnLogout.onclick = async () => { try { await signOut(auth); } catch(_) {} };
 </script>
 </body>
 </html>
