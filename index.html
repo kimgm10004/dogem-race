@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-<title>도트 경마 v4.5 — 안정화(이미지/로그인) + 실황/날씨/타입 + 자동편성 + 리얼 사운드 + Firebase</title>
+<title>도트 경마 v4.5 — 안정화(리전/정산) + 실황/날씨/타입 + 자동편성 + 리얼 사운드 + Firebase</title>
 <style>
   :root{--bg:#0b0e16;--panel:#0f1424;--line:#1f2940;--text:#c8d0ff;--title:#ffffff;--accent:#6C5CE7;--good:#9df7c7;--warn:#ffd26e;--bad:#ff7a9e}
   html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
@@ -14,7 +14,7 @@
   canvas{width:100%;height:auto;display:block;image-rendering:pixelated;border-radius:8px;border:1px solid var(--line)}
   .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .row>*{flex:1 1 auto}
-  .pill{padding:6px 10px;border-radius:999px;background:#131a33;border:1px solid var(--line);font-size:12px}
+  .pill{padding:6px 10px;border-radius:999px;background:#131a33;border:1px solid #1f2940;font-size:12px}
   .money{font-weight:700;color:var(--warn)}
   button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 12px;cursor:pointer}
   button.secondary{background:#1e2a53;color:#dbe1ff}
@@ -43,6 +43,7 @@
 <body>
 <div class="wrap">
   <h1>도트 경마 v4.5</h1>
+
   <div class="grid">
     <div class="panel">
       <canvas id="game"></canvas>
@@ -57,6 +58,8 @@
         <div class="pill">출전 <span id="fieldSize">-</span>두</div>
         <div class="pill">지갑 <span id="wallet" class="money">0</span> 원</div>
       </div>
+
+      <!-- 로그인 박스 -->
       <div id="authBox" class="row" style="margin-top:8px;">
         <input id="email" type="email" placeholder="이메일" />
         <input id="password" type="password" placeholder="비밀번호" />
@@ -65,8 +68,10 @@
         <button id="btnLogout" class="ghost" style="display:none;">로그아웃</button>
         <span id="authHint" class="small right" style="opacity:.8;"></span>
       </div>
-      <div class="hint">실황: “현재 1번 1위, 3번 2위…” / 골인: “골인! 1번 1등, 2번 2등, 3번 3등”. 거리·날씨·말 타입까지 반영!</div>
+
+      <div class="hint">실황·날씨·말 타입·자동 편성까지 반영된 안정화 버전!</div>
     </div>
+
     <div class="panel">
       <div class="row">
         <div class="pill">테이크아웃 18%</div>
@@ -74,15 +79,20 @@
       </div>
       <div class="totals small" id="poolTotals"></div>
       <div class="hr"></div>
+
       <table id="tbl">
-        <thead><tr>
-          <th>번</th><th>마명</th><th>기수</th>
-          <th>속력</th><th>지구력</th><th>스퍼트</th><th>숙련</th><th>레이팅</th>
-          <th>단승</th><th>연승</th>
-        </tr></thead>
+        <thead>
+          <tr>
+            <th>번</th><th>마명</th><th>기수</th>
+            <th>속력</th><th>지구력</th><th>스퍼트</th><th>숙련</th><th>레이팅</th>
+            <th>단승</th><th>연승</th>
+          </tr>
+        </thead>
         <tbody></tbody>
       </table>
+
       <div class="hr"></div>
+
       <div class="row">
         <select id="betType">
           <option value="WIN">단승식 (1착)</option>
@@ -99,7 +109,8 @@
         <input id="amount" type="number" min="100" step="100" value="1000" />
         <button id="btnAdd">베팅 추가</button>
       </div>
-      <div class="hint">타입에 맞는 말 번호 칸이 빨간색으로 하이라이트돼요.</div>
+      <div class="hint">베팅 타입에 맞는 말번호 칸이 빨갛게 하이라이트돼요.</div>
+
       <div id="tickets"></div>
     </div>
   </div>
@@ -112,14 +123,15 @@
 
   <div class="panel" style="margin-top:12px;">
     <div class="row">
-      <div class="pill">히스토리</div><div class="pill">최근 10경주</div>
+      <div class="pill">히스토리</div>
+      <div class="pill">최근 10경주</div>
       <div class="pill">총 손익 <span id="roi" class="money">0</span> 원</div>
     </div>
     <div id="history" class="small" style="margin-top:8px;"></div>
   </div>
 
-  <!-- 충전 모달(항상 기본 display:none) -->
-  <div id="chargeModal" class="modal" style="display:none;">
+  <!-- 충전 모달 -->
+  <div id="chargeModal" class="modal">
     <div class="box">
       <div class="row">
         <div class="pill">충전하기</div>
@@ -134,71 +146,40 @@
         <button id="btnCoupon" class="ghost">쿠폰 사용</button>
         <span id="couponHint" class="small" style="opacity:.85;"></span>
       </div>
-      <div class="hint">광고 클릭 보상은 정책 위반 위험이라 제공하지 않아요. 출석/쿠폰/미션 보상으로 안전 운영!</div>
+      <div class="hint">쿠폰은 대문자 기준, Functions 리전은 asia‑northeast3로 고정!</div>
     </div>
   </div>
 
-  <div class="hint">© 도검유트브 — 티스토리에 iframe으로 임베드 OK</div>
+  <div class="hint">© 도검유트브 — 티스토리 임베드 OK</div>
 </div>
 
-<!-- 게임 스크립트 -->
+<!-- 게임 스크립트(비모듈) -->
 <script>
 (()=>{
 // ===== 상수/유틸
-const TAKE=0.18;
-const COLORS=['#ff6b6b','#feca57','#1dd1a1','#5f27cd','#54a0ff','#ff9ff3','#48dbfb','#576574','#c8d6e5','#ffaf40','#10ac84','#ee5253'];
-
-const canvas=document.getElementById('game'); const ctx=canvas.getContext('2d');
-const SCALE=3, W=380, H=280; canvas.width=W*SCALE; canvas.height=H*SCALE; ctx.imageSmoothingEnabled=false;
+const TAKE=0.18, COLORS=['#ff6b6b','#feca57','#1dd1a1','#5f27cd','#54a0ff','#ff9ff3','#48dbfb','#576574','#c8d6e5','#ffaf40','#10ac84','#ee5253'];
+const canvas=document.getElementById('game'), ctx=canvas.getContext('2d'), SCALE=3, W=380, H=280;
+canvas.width=W*SCALE; canvas.height=H*SCALE; ctx.imageSmoothingEnabled=false;
 const CX=W/2, CY=H/2+6, RX=140, RY=70, LANE_W=6, FINISH_ANG=0;
-
-const rand=(a,b)=>a+Math.random()*(b-a);
-const rint=(a,b)=>Math.floor(rand(a,b+1));
-const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-const choice=a=>a[Math.floor(Math.random()*a.length)];
-const fmt=v=>v.toLocaleString('ko-KR');
-const fmtOdds=v=>isFinite(v)?v.toFixed(1):'-';
-const inRange=(v,a,b)=>v>=a&&v<=b;
+const rand=(a,b)=>a+Math.random()*(b-a), rint=(a,b)=>Math.floor(rand(a,b+1));
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)), choice=a=>a[Math.floor(Math.random()*a.length)];
+const fmt=v=>v.toLocaleString('ko-KR'), fmtOdds=v=>isFinite(v)?v.toFixed(1):'-', inRange=(v,a,b)=>v>=a&&v<=b;
 const sortedKey=(...xs)=>xs.slice().sort((a,b)=>a-b).join('-');
 
 // ===== DOM
-const tblBody=document.querySelector('#tbl tbody');
-const poolTotalsEl=document.getElementById('poolTotals');
-const walletEl=document.getElementById('wallet');
-const raceNoEl=document.getElementById('raceNo');
-const fieldSizeEl=document.getElementById('fieldSize');
-const raceMetersEl=document.getElementById('raceMeters');
-const ticketsEl=document.getElementById('tickets');
-const resultEl=document.getElementById('resultText');
-const payoutsEl=document.getElementById('payouts');
-const phaseText=document.getElementById('phaseText');
-const countdownEl=document.getElementById('countdown');
-const historyEl=document.getElementById('history');
-const roiEl=document.getElementById('roi');
-const btnNew=document.getElementById('btnNew');
-const btnStart=document.getElementById('btnStart');
-const btnAdd=document.getElementById('btnAdd');
-const btnSound=document.getElementById('btnSound');
-const btnCharge=document.getElementById('btnCharge');
-const selType=document.getElementById('betType');
-const pickA=document.getElementById('pickA');
-const pickB=document.getElementById('pickB');
-const pickC=document.getElementById('pickC');
-const amount=document.getElementById('amount');
+const tblBody=document.querySelector('#tbl tbody'), poolTotalsEl=document.getElementById('poolTotals');
+const walletEl=document.getElementById('wallet'), raceNoEl=document.getElementById('raceNo');
+const fieldSizeEl=document.getElementById('fieldSize'), raceMetersEl=document.getElementById('raceMeters');
+const ticketsEl=document.getElementById('tickets'), resultEl=document.getElementById('resultText');
+const payoutsEl=document.getElementById('payouts'), phaseText=document.getElementById('phaseText');
+const countdownEl=document.getElementById('countdown'), historyEl=document.getElementById('history'), roiEl=document.getElementById('roi');
+const btnNew=document.getElementById('btnNew'), btnStart=document.getElementById('btnStart'), btnAdd=document.getElementById('btnAdd'), btnSound=document.getElementById('btnSound'), btnCharge=document.getElementById('btnCharge');
+const selType=document.getElementById('betType'), pickA=document.getElementById('pickA'), pickB=document.getElementById('pickB'), pickC=document.getElementById('pickC'), amount=document.getElementById('amount');
 const commentaryEl=document.getElementById('commentary');
-
-const chargeModal=document.getElementById('chargeModal');
-const btnCloseCharge=document.getElementById('btnCloseCharge');
-const btnDaily=document.getElementById('btnDaily');
-const dailyHint=document.getElementById('dailyHint');
-const btnCoupon=document.getElementById('btnCoupon');
-const couponInput=document.getElementById('couponInput');
-const couponHint=document.getElementById('couponHint');
+const chargeModal=document.getElementById('chargeModal'), btnCloseCharge=document.getElementById('btnCloseCharge'), btnDaily=document.getElementById('btnDaily'), dailyHint=document.getElementById('dailyHint'), btnCoupon=document.getElementById('btnCoupon'), couponInput=document.getElementById('couponInput'), couponHint=document.getElementById('couponHint');
 
 // ===== 저장/초기
-let wallet=Number(localStorage.getItem('wallet')||100000);
-let raceNo=Number(localStorage.getItem('raceNo')||1);
-let roiTotal=Number(localStorage.getItem('roiTotal')||0);
+let wallet=Number(localStorage.getItem('wallet')||100000), raceNo=Number(localStorage.getItem('raceNo')||1), roiTotal=Number(localStorage.getItem('roiTotal')||0);
 walletEl.textContent=fmt(wallet); raceNoEl.textContent=raceNo; roiEl.textContent=fmt(roiTotal);
 
 // ===== 리얼 사운드
@@ -214,10 +195,10 @@ canvas.addEventListener('pointerdown',()=>{ if(soundEnabled){ getCtx(); loadSfxO
 btnStart.addEventListener('click',()=>{ if(soundEnabled){ getCtx(); loadSfxOnce(); }});
 function playGunShot(){ if(!soundEnabled||!bufGun) return; const c=getCtx(); if(!c) return; const s=c.createBufferSource(); const g=c.createGain(); g.gain.value=0.9; s.buffer=bufGun; s.connect(g).connect(c.destination); s.start(); }
 function startGallop(){ if(!soundEnabled||gallopSrc||!bufGallop) return; const c=getCtx(); if(!c) return; gallopSrc=c.createBufferSource(); gallopSrc.buffer=bufGallop; gallopSrc.loop=true; gallopGain=c.createGain(); gallopGain.gain.value=0.28; gallopSrc.connect(gallopGain).connect(c.destination); gallopSrc.start(); }
-function stopGallop(){ if(!gallopSrc) return; try{ const c=getCtx(); gallopGain.gain.cancelScheduledValues(c.currentTime); gallopGain.gain.exponentialRampToValueAtTime(0.0001,c.currentTime+0.5); gallopSrc.stop(c.currentTime+0.55);}catch(_){ } gallopSrc=null; gallopGain=null; }
+function stopGallop(){ if(!gallopSrc) return; try{ const c=getCtx(); gallopGain.gain.cancelScheduledValues(c.currentTime); gallopGain.gain.exponentialRampToValueAtTime(0.0001,c.currentTime+0.5); gallopSrc.stop(c.currentTime+0.55);}catch(_){} gallopSrc=null; gallopGain=null; }
 function startCrowd(level=0.2){ if(!soundEnabled||crowdSrc||!bufCrowd) return; const c=getCtx(); if(!c) return; crowdSrc=c.createBufferSource(); crowdSrc.buffer=bufCrowd; crowdSrc.loop=true; crowdGain=c.createGain(); crowdGain.gain.value=0.0001; crowdSrc.connect(crowdGain).connect(c.destination); crowdSrc.start(); fadeCrowd(level,0.8); }
 function fadeCrowd(level=0.3,sec=0.6){ if(!crowdGain) return; const c=getCtx(); const now=c.currentTime; crowdGain.gain.cancelScheduledValues(now); crowdGain.gain.setValueAtTime(Math.max(0.0001,crowdGain.gain.value),now); crowdGain.gain.exponentialRampToValueAtTime(Math.max(0.0001,level),now+sec); }
-function stopCrowd(){ if(!crowdSrc||!crowdGain) return; try{ const c=getCtx(); const now=c.currentTime; crowdGain.gain.cancelScheduledValues(now); crowdGain.gain.exponentialRampToValueAtTime(0.0001,now+0.6); crowdSrc.stop(now+0.7);}catch(_){ } crowdSrc=null; crowdGain=null; }
+function stopCrowd(){ if(!crowdSrc||!crowdGain) return; try{ const c=getCtx(); const now=c.currentTime; crowdGain.gain.cancelScheduledValues(now); crowdGain.gain.exponentialRampToValueAtTime(0.0001,now+0.6); crowdSrc.stop(now+0.7);}catch(_){} crowdSrc=null; crowdGain=null; }
 
 // ===== 날씨
 let weather={kind:'맑음',icon:'☀️',wet:false,snow:false};
@@ -230,12 +211,12 @@ const jockeyA=['박','김','이','최','정','한','윤','임','장','서','유'
 const jockeyB=['현우','지훈','민수','서연','도윤','하준','예린','지호','서윤','태현','시우','하린','보미','유진','가윤','민재'];
 
 let roster=[],pools,userTickets=[],history=JSON.parse(localStorage.getItem('history')||'[]');
-let phase='betting',countdown=30,aiFlowTimer=0;
-let running=false,paradeTimer=0,finishedOrder=[],time=0;
+let phase='betting',countdown=30,aiFlowTimer=0,running=false,paradeTimer=0,finishedOrder=[],time=0;
 let raceMeters=1200; const lapMeters=1600; let startAng=0;
 let nextRaceTimer=0, intermissionHint=''; let lastCastTick=0;
+let castFlags={q1:false,q2:false,q3:false}, lastLeader=null;
+let hasSettled=false; // 정산 1회 보장
 
-let castFlags={q1:false,q2:false,q3:false}; let lastLeader=null;
 function addCast(line){ const lines=commentaryEl.innerHTML.split('<br>').filter(Boolean); lines.push(`· ${line}`); while(lines.length>8) lines.shift(); commentaryEl.innerHTML=lines.join('<br>'); }
 
 // ===== 지갑 브리지
@@ -245,7 +226,7 @@ function handleWallet(d){ if(window.firebaseWallet?.add){ window.firebaseWallet.
 // ===== 초기화
 renderHistory(); newRace();
 
-// ===== 말번호 하이라이트
+// ===== 하이라이트
 const betTypeEl=document.getElementById('betType');
 function refreshPickHighlight(){ [pickA,pickB,pickC].forEach(el=>el.classList.remove('hl')); const t=betTypeEl.value; if(t==='WIN'||t==='PLACE') pickA.classList.add('hl'); else if(t==='QUINELLA'||t==='EXACTA'||t==='PLACEQ'){ pickA.classList.add('hl'); pickB.classList.add('hl'); } else if(t==='TRIO'||t==='TRIFECTA'){ pickA.classList.add('hl'); pickB.classList.add('hl'); pickC.classList.add('hl'); } }
 betTypeEl.addEventListener('change',refreshPickHighlight);
@@ -271,6 +252,7 @@ btnCloseCharge.onclick=()=>{ chargeModal.style.display='none'; };
 
 // ===== 경주 흐름
 function newRace(){
+  hasSettled=false;
   phase='betting'; phaseText.textContent='베팅 오픈'; countdown=30; countdownEl.textContent=countdown;
   running=false; paradeTimer=0; finishedOrder.length=0; time=0; lastCastTick=0;
   resultEl.textContent=''; payoutsEl.innerHTML=''; commentaryEl.innerHTML='';
@@ -278,6 +260,7 @@ function newRace(){
   weather=rollWeather();
   castFlags={q1:false,q2:false,q3:false}; lastLeader=null;
   addCast(`오늘 날씨는 ${weather.icon} ${weather.kind} 입니다.`);
+
   const cand=[800,1000,1100,1200,1400,1500,1600,1800,2000]; raceMeters=choice(cand); raceMetersEl.textContent=raceMeters;
   const N=rint(8,12);
   function pickType(){ const r=Math.random(); if(r<0.30) return '선행'; if(r<0.65) return '선입'; if(r<0.90) return '추입'; return '자유'; }
@@ -291,24 +274,49 @@ function newRace(){
   });
   fieldSizeEl.textContent=roster.length;
   startAng=normAngle(FINISH_ANG - 2*Math.PI*(raceMeters/lapMeters));
+
   renderTable(); pools=makePools(roster); renderPayoutPreview(); renderPoolTotals(); syncControls();
 }
 function startRace(){ phase='parade'; phaseText.textContent='출발 준비'; paradeTimer=3*60; countdown=0; countdownEl.textContent='0'; running=false; if(soundEnabled){ getCtx(); loadSfxOnce(); startCrowd(0.18);} syncControls(); }
 function beginRunning(){ phase='running'; phaseText.textContent='경주 중'; running=true; if(soundEnabled){ playGunShot(); startGallop(); fadeCrowd(0.35,0.8);} syncControls(); }
 function finishRace(){
+  if (hasSettled) return; // 정산 1회 보장
+  hasSettled = true;
+
   running=false; phase='result'; phaseText.textContent='결과'; syncControls();
   if(soundEnabled){ stopGallop(); fadeCrowd(0.55,0.6); setTimeout(()=>fadeCrowd(0.2,1.2),1200); }
-  const order=[...finishedOrder]; const first=order[0], second=order[1], third=order[2];
-  const nm=i=>`${roster[i].no}-${roster[i].name}`; resultEl.innerHTML=`<b>도착</b> ▶ 1위 ${nm(first)} / 2위 ${nm(second)} / 3위 ${nm(third)}`;
-  const pay=computePayouts(order); showPayouts(pay,order); renderPayoutDetails(pay,order);
-  const totalBet=userTickets.reduce((s,t)=>s+t.amount,0); let totalReturn=0; const lines=[];
-  userTickets.forEach(t=>{ const ret=settleTicket(t,order,pay); totalReturn+=ret; lines.push(`• ${descTicket(t)} → ${ret>0?('적중 '+fmt(Math.floor(ret))+'원'):'미적중'}`); });
-  if(totalReturn>0) handleWallet(Math.floor(totalReturn));
+
+  const order=[...finishedOrder];
+  const nm=i=>`${roster[i].no}-${roster[i].name}`;
+  const first=order[0], second=order[1], third=order[2];
+  resultEl.innerHTML=`<b>도착</b> ▶ 1위 ${nm(first)} / 2위 ${nm(second)} / 3위 ${nm(third)}`;
+
+  const pay=computePayouts(order);
+  showPayouts(pay,order);
+  renderPayoutDetails(pay,order);
+
+  const totalBet=userTickets.reduce((s,t)=>s+t.amount,0);
+  let totalReturn=0; const lines=[];
+  userTickets.forEach(t=>{
+    const ret=settleTicket(t,order,pay);
+    totalReturn += (isFinite(ret) ? ret : 0);
+    lines.push(`• ${descTicket(t)} → ${ret>0?('적중 '+fmt(Math.floor(ret))+'원'):'미적중'}`);
+  });
+
+  const gain=Math.max(0, Math.floor(totalReturn));
+  if (gain>0){
+    if (window.firebaseWallet?.add) { window.firebaseWallet.add(gain); }
+    else { wallet=Math.max(0,wallet+gain); walletEl.textContent=fmt(wallet); localStorage.setItem('wallet',wallet); }
+  }
   const pnl=Math.floor(totalReturn-totalBet); roiTotal+=pnl; roiEl.textContent=fmt(roiTotal); localStorage.setItem('roiTotal',roiTotal);
   payoutsEl.innerHTML+=`<div class="hr"></div><div class="small">${lines.join('<br>')}</div>`;
+
   history.unshift({ raceNo, time:new Date().toLocaleString(), order:order.slice(0,3), pnl, totalBet, totalReturn, meters:raceMeters, field:roster.length });
   if(history.length>10) history.pop(); localStorage.setItem('history',JSON.stringify(history)); renderHistory();
-  const top3=order.slice(0,3).map(i=>roster[i].no); addCast(`골인! ${top3[0]}번 1등, ${top3[1]}번 2등, ${top3[2]}번 3등입니다!`);
+
+  const top3=order.slice(0,3).map(i=>roster[i].no);
+  addCast(`골인! ${top3[0]}번 1등, ${top3[1]}번 2등, ${top3[2]}번 3등입니다!`);
+
   phase='intermission'; phaseText.textContent='인터미션'; nextRaceTimer=60*1000; intermissionHint='다음 경주 편성까지 01:00';
 }
 
@@ -317,23 +325,57 @@ requestAnimationFrame(loop); let last=performance.now(),acc=0;
 function loop(ts){ let delta=ts-last; last=ts; if(delta>250) delta=250; acc+=delta; const FIXED=1000/60; while(acc>=FIXED){ update(FIXED); acc-=FIXED; } draw(); requestAnimationFrame(loop); }
 function update(FIXED){
   if(phase==='betting'||phase==='closing'){
-    aiFlowTimer++; if(aiFlowTimer%60===0){ if(countdown>0) countdown--; countdownEl.textContent=countdown; aiRandomFlow(); renderPayoutPreview(); renderPoolTotals(); if(phase==='betting'&&countdown<=10){ phase='closing'; phaseText.textContent='마감 임박'; syncControls(); } if(countdown<=0){ startRace(); } }
+    aiFlowTimer++;
+    if(aiFlowTimer%60===0){
+      if(countdown>0) countdown--;
+      countdownEl.textContent=countdown;
+      aiRandomFlow(); renderPayoutPreview(); renderPoolTotals();
+      if(phase==='betting' && countdown<=10){ phase='closing'; phaseText.textContent='마감 임박'; syncControls(); }
+      if(countdown<=0){ startRace(); }
+    }
   }
-  if(phase==='intermission'){ nextRaceTimer-=FIXED; if(nextRaceTimer<0) nextRaceTimer=0; const sec=Math.ceil(nextRaceTimer/1000); const m=String(Math.floor(sec/60)).padStart(2,'0'); const s=String(sec%60).padStart(2,'0'); intermissionHint=`다음 경주 편성까지 ${m}:${s}`; if(nextRaceTimer===0) newRace(); return; }
+
+  if(phase==='intermission'){
+    nextRaceTimer-=FIXED; if(nextRaceTimer<0) nextRaceTimer=0;
+    const sec=Math.ceil(nextRaceTimer/1000), m=String(Math.floor(sec/60)).padStart(2,'0'), s=String(sec%60).padStart(2,'0');
+    intermissionHint=`다음 경주 편성까지 ${m}:${s}`;
+    if(nextRaceTimer===0) newRace();
+    return;
+  }
+
   if(phase==='parade'){ paradeTimer--; if(paradeTimer<=0) beginRunning(); return; }
   if(!running) return;
 
   time++;
+
   roster.forEach(r=>{
     if(r.finished) return;
     const distScale=clamp(1200/raceMeters,0.6,1.4);
     const prog=r.dist/raceMeters;
-    let typeMul=1; if(r.type==='선행') typeMul*=(prog<0.5?1.06:0.96); else if(r.type==='선입') typeMul*=1.02; else if(r.type==='추입') typeMul*=(prog<0.6?0.96:1.08);
-    const base=0.9+r.speed/120; let cond=r.horseCond*r.jockeyCond; let fatigue=clamp(1-(prog*(1.2-r.stamina/100)),0.70,1.03); let kick=(prog>0.82)?(1+(r.burst/100)*0.38):1; const jitter=rand(0.985,1.015);
-    if(weather.wet){ fatigue*=0.98; kick*=0.98; } if(weather.snow){ cond*=0.98; } if(weather.wet){ const wetTalent=(r.stamina+r.jockeySkill)/200; cond*=(0.98+wetTalent*0.03); }
-    if(r.stumble<=0 && Math.random()<0.0117) r.stumble=rint(30,70); const stumbleMul=(r.stumble>0)?0.68:1; if(r.stumble>0) r.stumble--;
-    const theta=angleFromDist(r.dist); let cornerMul=0.96+0.04*(1-Math.abs(Math.sin(theta)));
-    let v=base*cond*fatigue*kick*jitter*stumbleMul*cornerMul*typeMul; v*=0.9+distScale*0.2;
+
+    let typeMul=1;
+    if(r.type==='선행') typeMul*=(prog<0.5?1.06:0.96);
+    else if(r.type==='선입') typeMul*=1.02;
+    else if(r.type==='추입') typeMul*=(prog<0.6?0.96:1.08);
+
+    const base=0.9+r.speed/120; let cond=r.horseCond*r.jockeyCond;
+    let fatigue=clamp(1-(prog*(1.2-r.stamina/100)),0.70,1.03);
+    let kick=(prog>0.82)?(1+(r.burst/100)*0.38):1;
+    const jitter=rand(0.985,1.015);
+
+    if(weather.wet){ fatigue*=0.98; kick*=0.98; }
+    if(weather.snow){ cond*=0.98; }
+    if(weather.wet){ const wetTalent=(r.stamina+r.jockeySkill)/200; cond*=(0.98+wetTalent*0.03); }
+
+    if(r.stumble<=0 && Math.random()<0.0117) r.stumble=rint(30,70);
+    const stumbleMul=(r.stumble>0)?0.68:1; if(r.stumble>0) r.stumble--;
+
+    const theta=angleFromDist(r.dist);
+    let cornerMul=0.96+0.04*(1-Math.abs(Math.sin(theta)));
+
+    let v=base*cond*fatigue*kick*jitter*stumbleMul*cornerMul*typeMul;
+    v*=0.9+distScale*0.2;
+
     r.dist+=v;
     if(r.dist>=raceMeters){ r.dist=raceMeters; r.finished=true; r.finishTime=time; finishedOrder.push(roster.indexOf(r)); }
   });
@@ -345,45 +387,97 @@ function update(FIXED){
   if(!castFlags.q3 && leadDist>=raceMeters*0.75){ castFlags.q3=true; addCast('3/4 지점! 스퍼트 준비, 결승선 향해 진입!'); }
   if(leader!==lastLeader){ addCast(`선두 바뀝니다! #${roster[leader].no} ${roster[leader].name} 앞으로!`); lastLeader=leader; }
   for(const r of roster){ if(r.stumble===1){ addCast(`아! #${r.no} ${r.name} 약간의 실수! 속도 떨어집니다!`); break; } }
-  lastCastTick+=FIXED; if(lastCastTick>=1000){ lastCastTick=0; const top=orderNow.slice(0,3).map(i=>roster[i].no); if(top.length>=2) addCast(`현재 ${top[0]}번 1위, ${top[1]}번 2위${top[2]?`, ${top[2]}번 3위`:''}!`); }
+
+  lastCastTick+=FIXED;
+  if(lastCastTick>=1000){
+    lastCastTick=0;
+    const top=orderNow.slice(0,3).map(i=>roster[i].no);
+    if(top.length>=2) addCast(`현재 ${top[0]}번 1위, ${top[1]}번 2위${top[2]?`, ${top[2]}번 3위`:''}!`);
+  }
+
   if(finishedOrder.length===roster.length) finishRace();
 }
 
 // ===== AI 베팅
 function aiRandomFlow(){
-  const w=roster.map(r=>r.rating); const add=()=>Math.floor(rand(200,4000)); const pick=()=>{const s=w.reduce((a,b)=>a+b,0); let r=Math.random()*s; for(let i=0;i<w.length;i++){ r-=w[i]; if(r<0) return i;} return w.length-1; };
+  const w=roster.map(r=>r.rating), add=()=>Math.floor(rand(200,4000));
+  const pick=()=>{const s=w.reduce((a,b)=>a+b,0); let r=Math.random()*s; for(let i=0;i<w.length;i++){ r-=w[i]; if(r<0) return i;} return w.length-1; };
   for(let t=0;t<rint(2,5);t++){ const i=pick(); pools.win[i].amount+=add(); pools.place[i].amount+=Math.floor(add()*0.8); }
   for(let t=0;t<rint(1,3);t++){ const i=pick(); let j=pick(); while(j===i) j=pick(); const A=Math.min(i,j),B=Math.max(i,j); pools.quin[`${A}-${B}`]=(pools.quin[`${A}-${B}`]||0)+add(); pools.placeq[`${A}-${B}`]=(pools.placeq[`${A}-${B}`]||0)+Math.floor(add()*0.7); pools.exact[`${i}>${j}`]=(pools.exact[`${i}>${j}`]||0)+Math.floor(add()*0.6); }
-  if(Math.random()<0.6){ const p=[]; const ww=w.slice(); for(let k=0;k<3;k++){ const i=(()=>{const s=ww.reduce((a,b)=>a+b,0); let r=Math.random()*s; for(let i=0;i<ww.length;i++){ r-=ww[i]; if(r<0) return i;} return ww.length-1;})(); p.push(i); ww[i]=0;} const key=sortedKey(...p); pools.trio[key]=(pools.trio[key]||0)+Math.floor(add()*0.8); if(Math.random()<0.5){ const key2=`${p[0]}>${p[1]}>${p[2]}`; pools.trifecta[key2]=(pools.trifecta[key2]||0)+Math.floor(add()*0.5); } }
+  if(Math.random()<0.6){
+    const picks=[]; const ww=w.slice();
+    for(let k=0;k<3;k++){ const i=(function(){const s=ww.reduce((a,b)=>a+b,0); let r=Math.random()*s; for(let i=0;i<ww.length;i++){ r-=ww[i]; if(r<0) return i;} return ww.length-1; })(); picks.push(i); ww[i]=0; }
+    const key=sortedKey(...picks); pools.trio[key]=(pools.trio[key]||0)+Math.floor(add()*0.8);
+    if(Math.random()<0.5){ const key2=`${picks[0]}>${picks[1]}>${picks[2]}`; pools.trifecta[key2]=(pools.trifecta[key2]||0)+Math.floor(add()*0.5); }
+  }
 }
 
-// ===== 배당/표 (동일)
-function makePools(roster){ const weights=roster.map(r=>Math.pow(r.rating,1.9)); const wsum=weights.reduce((a,b)=>a+b,0); const base={win:90000,place:70000,quin:140000,exact:120000,placeq:90000,trio:120000,trifecta:100000}; const win=roster.map((r,i)=>({key:`H${i}`,amount:Math.max(1000,(weights[i]/wsum)*base.win*rand(0.8,1.2))})); const place=roster.map((r,i)=>({key:`P${i}`,amount:Math.max(1000,(weights[i]/wsum)*base.place*rand(0.9,1.2))})); const quin={},exact={},placeq={},trio={},trifecta={}; for(let i=0;i<roster.length;i++){ for(let j=i+1;j<roster.length;j++){ const w=weights[i]*weights[j]; quin[`${i}-${j}`]=Math.max(500,(w/(wsum*wsum))*base.quin*rand(0.8,1.3)); placeq[`${i}-${j}`]=Math.max(400,(w/(wsum*wsum))*base.placeq*rand(0.9,1.2)); } } for(let i=0;i<roster.length;i++){ for(let j=0;j<roster.length;j++){ if(i===j) continue; const w=weights[i]*weights[j]*1.1; exact[`${i}>${j}`]=Math.max(300,(w/(wsum*wsum))*base.exact*rand(0.8,1.3)); } } for(let i=0;i<roster.length;i++){ for(let j=i+1;j<roster.length;j++){ for(let k=j+1;k<roster.length;k++){ const w=weights[i]*weights[j]*weights[k]; trio[`${i}-${j}-${k}`]=Math.max(200,(w/(wsum**3))*base.trio*rand(0.8,1.3)); } } } for(let i=0;i<roster.length;i++){ for(let j=0;j<roster.length;j++){ for(let k=0;k<roster.length;k++){ if(i===j||i===k||j===k) continue; const w=weights[i]*weights[j]*weights[k]*1.1; trifecta[`${i}>${j}>${k}`]=Math.max(150,(w/(wsum**3))*base.trifecta*rand(0.8,1.3)); } } } return {win,place,quin,exact,placeq,trio,trifecta}; }
-function computePayouts(order){ const first=order[0],second=order[1],third=order[2]; const sumObj=o=>Object.values(o).reduce((a,b)=>a+b,0); const winTotal=pools.win.reduce((a,b)=>a+b.amount,0); const winRate=(winTotal*(1-TAKE))/(pools.win[first].amount||0.001); const placeTotal=pools.place.reduce((a,b)=>a+b.amount,0); const p1=(placeTotal*(1-TAKE)/3)/(pools.place[first].amount||0.001); const p2=(placeTotal*(1-TAKE)/3)/(pools.place[second].amount||0.001); const p3=(placeTotal*(1-TAKE)/3)/(pools.place[third].amount||0.001); const quinTotal=sumObj(pools.quin); const keyQ=first<second?`${first}-${second}`:`${second}-${first}`; const quinRate=(quinTotal*(1-TAKE))/(pools.quin[keyQ]||0.001); const exactTotal=sumObj(pools.exact); const keyE=`${first}>${second}`; const exactRate=(exactTotal*(1-TAKE))/(pools.exact[keyE]||0.001); const pqTotal=sumObj(pools.placeq); const keysPQ=[ first<second?`${first}-${second}`:`${second}-${first}`, first<third?`${first}-${third}`:`${third}-${first}`, second<third?`${second}-${third}`:`${third}-${second}` ]; const pqOn=keysPQ.reduce((s,k)=>s+(pools.placeq[k]||0),0)||0.001; const pqRate=(pqTotal*(1-TAKE))/pqOn; const trioTotal=sumObj(pools.trio); const keyT=sortedKey(first,second,third); const trioRate=(trioTotal*(1-TAKE))/(pools.trio[keyT]||0.001); const trifTotal=sumObj(pools.trifecta); const keyTf=`${first}>${second}>${third}`; const trifRate=(trifTotal*(1-TAKE))/(pools.trifecta[keyTf]||0.001); return { win:winRate, place:[p1,p2,p3], quin:quinRate, exact:exactRate, placeq:pqRate, trio:trioRate, trifecta:trifRate }; }
-function showPayouts(pay,order){ const first=order[0],second=order[1],third=order[2]; const nm=i=>`#${roster[i].no}`; payoutsEl.innerHTML=`<div class="row small">
-  <div class="tag">단승식 ${nm(first)}</div><div class="odds">${fmtOdds(pay.win)}</div>
-  <div class="tag">연승식 ${nm(first)}</div><div class="odds">${fmtOdds(pay.place[0])}</div>
-  <div class="tag">연승식 ${nm(second)}</div><div class="odds">${fmtOdds(pay.place[1])}</div>
-  <div class="tag">연승식 ${nm(third)}</div><div class="odds">${fmtOdds(pay.place[2])}</div>
-</div>
-<div class="row small" style="margin-top:6px;">
-  <div class="tag">복승식 ${nm(first)}-${nm(second)}</div><div class="odds">${fmtOdds(pay.quin)}</div>
-  <div class="tag">쌍승식 ${nm(first)}>${nm(second)}</div><div class="odds">${fmtOdds(pay.exact)}</div>
-</div>
-<div class="row small" style="margin-top:6px;">
-  <div class="tag">복연승식 (Top3 임의 2두)</div><div class="odds">${fmtOdds(pay.placeq)}</div>
-  <div class="tag">삼복승식 (Top3 무순)</div><div class="odds">${fmtOdds(pay.trio)}</div>
-  <div class="tag">삼쌍승식 ${nm(first)}>${nm(second)}>${nm(third)}</div><div class="odds">${fmtOdds(pay.trifecta)}</div>
-</div>`;}
-function renderPayoutDetails(pay,order){ const first=order[0],second=order[1],third=order[2]; const nm=i=>`#${roster[i].no}`; const r=x=>isFinite(x)?x:null; const won100=od=>od?Math.floor(od*100):null; const won1000=od=>od?Math.floor(od*1000):null; const rows=[ {name:`단승 ${nm(first)}`,od:r(pay.win)}, {name:`연승 ${nm(first)}`,od:r(pay.place[0])}, {name:`연승 ${nm(second)}`,od:r(pay.place[1])}, {name:`연승 ${nm(third)}`,od:r(pay.place[2])}, {name:`복승 ${nm(first)}-${nm(second)}`,od:r(pay.quin)}, {name:`쌍승 ${nm(first)}>${nm(second)}`,od:r(pay.exact)}, {name:`복연 (Top3 임의 2두)`,od:r(pay.placeq)}, {name:`삼복 (Top3 무순)`,od:r(pay.trio)}, {name:`삼쌍 ${nm(first)}>${nm(second)}>${nm(third)}`,od:r(pay.trifecta)} ]; const html=`<div class="hr"></div><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th style="text-align:left;padding:4px 6px;">종목</th><th style="padding:4px 6px;">배당률</th><th style="padding:4px 6px;">100원 기준</th><th style="padding:4px 6px;">1,000원 기준</th></tr></thead><tbody>
-${rows.map(rw=>{const od=rw.od,w100=won100(od),w1000=won1000(od); return `<tr><td style="text-align:left;padding:4px 6px;">${rw.name}</td><td style="padding:4px 6px;">${od?od.toFixed(1):'-'}</td><td style="padding:4px 6px;">${w100!=null?`${w100.toLocaleString()}원`:'-'}</td><td style="padding:4px 6px;">${w1000!=null?`${w1000.toLocaleString()}원`:'-'}</td></tr>`; }).join('')}
-</tbody></table>`; payoutsEl.innerHTML+=html; }
-function renderPoolTotals(){ const sumObj=o=>Object.values(o).reduce((a,b)=>a+b,0); const tWin=pools.win.reduce((a,b)=>a+b.amount,0); const tPla=pools.place.reduce((a,b)=>a+b.amount,0); const tQuin=sumObj(pools.quin),tEx=sumObj(pools.exact),tPQ=sumObj(pools.placeq),tTrio=sumObj(pools.trio),tTri=sumObj(pools.trifecta); poolTotalsEl.innerHTML=`<div class="pill small">단승풀 ${fmt(Math.floor(tWin))}원</div><div class="pill small">연승풀 ${fmt(Math.floor(tPla))}원</div><div class="pill small">복승풀 ${fmt(Math.floor(tQuin))}원</div><div class="pill small">쌍승풀 ${fmt(Math.floor(tEx))}원</div><div class="pill small">복연풀 ${fmt(Math.floor(tPQ))}원</div><div class="pill small">삼복풀 ${fmt(Math.floor(tTrio))}원</div><div class="pill small">삼쌍풀 ${fmt(Math.floor(tTri))}원</div>`; }
-function renderPayoutPreview(){ const winTotal=pools.win.reduce((a,b)=>a+b.amount,0); const placeTotal=pools.place.reduce((a,b)=>a+b.amount,0); roster.forEach((r,i)=>{ const winOn=pools.win[i].amount||0.001; const placeOn=pools.place[i].amount||0.001; const winRate=(winTotal*(1-TAKE))/winOn; const placeRate=(placeTotal*(1-TAKE)/3)/placeOn; const tr=tblBody.children[i]; if(!tr) return; tr.querySelector('[data-odds-win]').textContent=Math.max(1,winRate).toFixed(1); tr.querySelector('[data-odds-place]').textContent=Math.max(1,placeRate).toFixed(1); }); }
+// ===== 배당/정산/표
+function makePools(roster){ const weights=roster.map(r=>Math.pow(r.rating,1.9)); const wsum=weights.reduce((a,b)=>a+b,0); const base={win:90000,place:70000,quin:140000,exact:120000,placeq:90000,trio:120000,trifecta:100000};
+  const win=roster.map((r,i)=>({key:`H${i}`,amount:Math.max(1000,(weights[i]/wsum)*base.win*rand(0.8,1.2))}));
+  const place=roster.map((r,i)=>({key:`P${i}`,amount:Math.max(1000,(weights[i]/wsum)*base.place*rand(0.9,1.2))}));
+  const quin={},exact={},placeq={},trio={},trifecta={};
+  for(let i=0;i<roster.length;i++){ for(let j=i+1;j<roster.length;j++){ const w=weights[i]*weights[j]; quin[`${i}-${j}`]=Math.max(500,(w/(wsum*wsum))*base.quin*rand(0.8,1.3)); placeq[`${i}-${j}`]=Math.max(400,(w/(wsum*wsum))*base.placeq*rand(0.9,1.2)); } }
+  for(let i=0;i<roster.length;i++){ for(let j=0;j<roster.length;j++){ if(i===j) continue; const w=weights[i]*weights[j]*1.1; exact[`${i}>${j}`]=Math.max(300,(w/(wsum*wsum))*base.exact*rand(0.8,1.3)); } }
+  for(let i=0;i<roster.length;i++){ for(let j=i+1;j<roster.length;j++){ for(let k=j+1;k<roster.length;k++){ const w=weights[i]*weights[j]*weights[k]; trio[`${i}-${j}-${k}`]=Math.max(200,(w/(wsum**3))*base.trio*rand(0.8,1.3)); } } }
+  for(let i=0;i<roster.length;i++){ for(let j=0;j<roster.length;j++){ for(let k=0;k<roster.length;k++){ if(i===j||i===k||j===k) continue; const w=weights[i]*weights[j]*weights[k]*1.1; trifecta[`${i}>${j}>${k}`]=Math.max(150,(w/(wsum**3))*base.trifecta*rand(0.8,1.3)); } } }
+  return {win,place,quin,exact,placeq,trio,trifecta};
+}
+function computePayouts(order){
+  const first=order[0],second=order[1],third=order[2]; const sumObj=o=>Object.values(o).reduce((a,b)=>a+b,0);
+  const winTotal=pools.win.reduce((a,b)=>a+b.amount,0); const winRate=(winTotal*(1-TAKE))/(pools.win[first].amount||0.001);
+  const placeTotal=pools.place.reduce((a,b)=>a+b.amount,0);
+  const p1=(placeTotal*(1-TAKE)/3)/(pools.place[first].amount||0.001);
+  const p2=(placeTotal*(1-TAKE)/3)/(pools.place[second].amount||0.001);
+  const p3=(placeTotal*(1-TAKE)/3)/(pools.place[third].amount||0.001);
+  const quinTotal=sumObj(pools.quin); const keyQ=first<second?`${first}-${second}`:`${second}-${first}`; const quinRate=(quinTotal*(1-TAKE))/(pools.quin[keyQ]||0.001);
+  const exactTotal=sumObj(pools.exact); const keyE=`${first}>${second}`; const exactRate=(exactTotal*(1-TAKE))/(pools.exact[keyE]||0.001);
+  const pqTotal=sumObj(pools.placeq); const keysPQ=[ first<second?`${first}-${second}`:`${second}-${first}`, first<third?`${first}-${third}`:`${third}-${first}`, second<third?`${second}-${third}`:`${third}-${second}` ];
+  const pqOn=keysPQ.reduce((s,k)=>s+(pools.placeq[k]||0),0)||0.001; const pqRate=(pqTotal*(1-TAKE))/pqOn;
+  const trioTotal=sumObj(pools.trio); const keyT=sortedKey(first,second,third); const trioRate=(trioTotal*(1-TAKE))/(pools.trio[keyT]||0.001);
+  const trifTotal=sumObj(pools.trifecta); const keyTf=`${first}>${second}>${third}`; const trifRate=(trifTotal*(1-TAKE))/(pools.trifecta[keyTf]||0.001);
+
+  const safe=v=>(isFinite(v)&&v>0)?v:0; // 안전 가드
+  return { win:safe(winRate), place:[safe(p1),safe(p2),safe(p3)], quin:safe(quinRate), exact:safe(exactRate), placeq:safe(pqRate), trio:safe(trioRate), trifecta:safe(trifRate) };
+}
+function showPayouts(pay,order){
+  const first=order[0],second=order[1],third=order[2], nm=i=>`#${roster[i].no}`;
+  payoutsEl.innerHTML=`<div class="row small">
+    <div class="tag">단승식 ${nm(first)}</div><div class="odds">${fmtOdds(pay.win)}</div>
+    <div class="tag">연승식 ${nm(first)}</div><div class="odds">${fmtOdds(pay.place[0])}</div>
+    <div class="tag">연승식 ${nm(second)}</div><div class="odds">${fmtOdds(pay.place[1])}</div>
+    <div class="tag">연승식 ${nm(third)}</div><div class="odds">${fmtOdds(pay.place[2])}</div>
+  </div>
+  <div class="row small" style="margin-top:6px;">
+    <div class="tag">복승식 ${nm(first)}-${nm(second)}</div><div class="odds">${fmtOdds(pay.quin)}</div>
+    <div class="tag">쌍승식 ${nm(first)}>${nm(second)}</div><div class="odds">${fmtOdds(pay.exact)}</div>
+  </div>
+  <div class="row small" style="margin-top:6px;">
+    <div class="tag">복연승식 (Top3 임의 2두)</div><div class="odds">${fmtOdds(pay.placeq)}</div>
+    <div class="tag">삼복승식 (Top3 무순)</div><div class="odds">${fmtOdds(pay.trio)}</div>
+    <div class="tag">삼쌍승식 ${nm(first)}>${nm(second)}>${nm(third)}</div><div class="odds">${fmtOdds(pay.trifecta)}</div>
+  </div>`;
+}
+function renderPayoutDetails(pay,order){
+  const first=order[0],second=order[1],third=order[2], nm=i=>`#${roster[i].no}`;
+  const r=x=>isFinite(x)?x:null, won100=od=>od?Math.floor(od*100):null, won1000=od=>od?Math.floor(od*1000):null;
+  const rows=[ {name:`단승 ${nm(first)}`,od:r(pay.win)}, {name:`연승 ${nm(first)}`,od:r(pay.place[0])}, {name:`연승 ${nm(second)}`,od:r(pay.place[1])}, {name:`연승 ${nm(third)}`,od:r(pay.place[2])}, {name:`복승 ${nm(first)}-${nm(second)}`,od:r(pay.quin)}, {name:`쌍승 ${nm(first)}>${nm(second)}`,od:r(pay.exact)}, {name:`복연 (Top3 임의 2두)`,od:r(pay.placeq)}, {name:`삼복 (Top3 무순)`,od:r(pay.trio)}, {name:`삼쌍 ${nm(first)}>${nm(second)}>${nm(third)}`,od:r(pay.trifecta)} ];
+  const html=`<div class="hr"></div><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th style="text-align:left;padding:4px 6px;">종목</th><th style="padding:4px 6px;">배당률</th><th style="padding:4px 6px;">100원 기준</th><th style="padding:4px 6px;">1,000원 기준</th></tr></thead><tbody>
+  ${rows.map(rw=>{const od=rw.od,w100=won100(od),w1000=won1000(od); return `<tr><td style="text-align:left;padding:4px 6px;">${rw.name}</td><td style="padding:4px 6px;">${od?od.toFixed(1):'-'}</td><td style="padding:4px 6px;">${w100!=null?`${w100.toLocaleString()}원`:'-'}</td><td style="padding:4px 6px;">${w1000!=null?`${w1000.toLocaleString()}원`:'-'}</td></tr>`; }).join('')}
+  </tbody></table>`; payoutsEl.innerHTML+=html;
+}
+function renderPoolTotals(){ const sumObj=o=>Object.values(o).reduce((a,b)=>a+b,0); const tWin=pools.win.reduce((a,b)=>a+b.amount,0); const tPla=pools.place.reduce((a,b)=>a+b.amount,0);
+  const tQuin=sumObj(pools.quin), tEx=sumObj(pools.exact), tPQ=sumObj(pools.placeq), tTrio=sumObj(pools.trio), tTri=sumObj(pools.trifecta);
+  poolTotalsEl.innerHTML=`<div class="pill small">단승풀 ${fmt(Math.floor(tWin))}원</div><div class="pill small">연승풀 ${fmt(Math.floor(tPla))}원</div><div class="pill small">복승풀 ${fmt(Math.floor(tQuin))}원</div><div class="pill small">쌍승풀 ${fmt(Math.floor(tEx))}원</div><div class="pill small">복연풀 ${fmt(Math.floor(tPQ))}원</div><div class="pill small">삼복풀 ${fmt(Math.floor(tTrio))}원</div><div class="pill small">삼쌍풀 ${fmt(Math.floor(tTri))}원</div>`;
+}
+function renderPayoutPreview(){ const winTotal=pools.win.reduce((a,b)=>a+b.amount,0), placeTotal=pools.place.reduce((a,b)=>a+b.amount,0);
+  roster.forEach((r,i)=>{ const winOn=pools.win[i].amount||0.001, placeOn=pools.place[i].amount||0.001;
+    const winRate=(winTotal*(1-TAKE))/winOn, placeRate=(placeTotal*(1-TAKE)/3)/placeOn;
+    const tr=tblBody.children[i]; if(!tr) return; tr.querySelector('[data-odds-win]').textContent=Math.max(1,winRate).toFixed(1); tr.querySelector('[data-odds-place]').textContent=Math.max(1,placeRate).toFixed(1);
+  });
+}
 function renderTable(){ tblBody.innerHTML=''; roster.forEach((r,i)=>{ const tr=document.createElement('tr'); tr.innerHTML=`<td><span class="lane" style="background:${r.color}"></span>${r.no}</td><td>${r.name}</td><td>${r.jockey}</td><td>${r.speed}</td><td>${r.stamina}</td><td>${r.burst}</td><td>${r.jockeySkill}</td><td>${r.rating}</td><td class="odds" data-odds-win>-</td><td class="odds" data-odds-place>-</td>`; tblBody.appendChild(tr); }); }
 function rebuildTickets(){ ticketsEl.innerHTML=''; if(!userTickets.length){ ticketsEl.innerHTML='<div class="hint">베팅을 추가해줘. 하나의 경주에 여러 티켓 가능!</div>'; return; } userTickets.forEach((t,idx)=>{ const div=document.createElement('div'); div.className='ticket row'; div.innerHTML=`<div class="badge">${t.type}</div><div style="flex:1">${descTicket(t)}</div><div><span class="money">${fmt(t.amount)}</span> 원</div><button class="ghost small" data-del="${idx}">삭제</button>`; ticketsEl.appendChild(div); }); ticketsEl.querySelectorAll('[data-del]').forEach(btn=>{ btn.onclick=()=>{ const i=Number(btn.dataset.del); handleWallet(userTickets[i].amount); userTickets.splice(i,1); rebuildTickets(); renderPayoutPreview(); renderPoolTotals(); }; }); }
-function descTicket(t){ const nm=i=>`${roster[i].no} ${roster[i].name}`; if(t.type==='WIN') return `단승식: ${nm(t.a)}`; if(t.type==='PLACE') return `연승식: ${nm(t.a)}`; if(t.type==='QUINELLA') return `복승식: ${nm(t.a)} - ${nm(t.b)} (무순서)`; if(t.type==='EXACTA') return `쌍승식: ${nm(t.a)} > ${nm(t.b)} (순서일치)`; if(t.type==='PLACEQ') return `복연승식: ${nm(t.a)} & ${nm(t.b)} (두 말 모두 3위 내)`; if(t.type==='TRIO') return `삼복승식: ${nm(t.a)}, ${nm(t.b)}, ${nm(t.c)} (무순서)`; if(t.type==='TRIFECTA') return `삼쌍승식: ${nm(t.a)} > ${nm(t.b)} > ${nm(t.c)} (순서일치)`; return ''; }
-function addUserPool(type,a,b,amt,c){ if(type==='WIN') pools.win[a].amount+=amt; else if(type==='PLACE') pools.place[a].amount+=amt; else if(type==='QUINELLA'){ const key=a<b?`${a}-${b}`:`${b}-${a}`; pools.quin[key]=(pools.quin[key]||0)+amt; } else if(type==='EXACTA'){ const key=`${a}>${b}`; pools.exact[key]=(pools.exact[key]||0)+amt; } else if(type==='PLACEQ'){ const key=a<b?`${a}-${b}`:`${b}-${a}`; pools.placeq[key]=(pools.placeq[key]||0)+amt; } else if(type==='TRIO'){ const key=sortedKey(a,b,c); pools.trio[key]=(pools.trio[key]||0)+amt; } else if(type==='TRIFECTA'){ const key=`${a}>${b}>${c}`; pools.trifecta[key]=(pools.trifecta[key]||0)+amt; } }
 
 // ===== 드로잉
 function draw(){
@@ -402,7 +496,7 @@ function draw(){
   ctx.restore();
 }
 function drawTrack(){ ctx.fillStyle='#7a3e1d'; ctx.beginPath(); ctx.ellipse(CX,CY,RX,RY,0,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#0e6a2b'; ctx.beginPath(); ctx.ellipse(CX,CY,RX-LANE_W,RY-LANE_W,0,0,Math.PI*2); ctx.fill(); ctx.globalCompositeOperation='destination-over'; ctx.fillStyle='#0f5c26'; ctx.beginPath(); ctx.ellipse(CX,CY,RX+6,RY+6,0,0,Math.PI*2); ctx.fill(); ctx.globalCompositeOperation='source-over'; ctx.strokeStyle='#ffffff'; ctx.lineWidth=1; ctx.beginPath(); ctx.ellipse(CX,CY,RX-2,RY-2,0,0,Math.PI*2); ctx.stroke(); ctx.beginPath(); ctx.ellipse(CX,CY,RX-LANE_W+2,RY-LANE_W+2,0,0,Math.PI*2); ctx.stroke(); }
-function drawFinishPost(ang){ const p=ovalOffsetPos(ang,-6); px(p.x-1,p.y-14,3,14,'#e63946'); ctx.fillStyle='#e63946'; ctx.beginPath(); ctx.arc(p.x+0.5,p.y-16,5,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#ffffff'; ctx.beginPath(); ctx.arc(p.x+0.5,p.y-16,3,0,Math.PI*2); ctx.fill(); }
+function drawFinishPost(ang){ const p=ovalOffsetPos(ang,-6); px(p.x-1,p.y-14,3,14,'#e63946'); ctx.beginPath(); ctx.fillStyle='#e63946'; ctx.arc(p.x+0.5,p.y-16,5,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.fillStyle='#ffffff'; ctx.arc(p.x+0.5,p.y-16,3,0,Math.PI*2); ctx.fill(); }
 function drawGate(ang){ const p=ovalOffsetPos(ang,-4); px(p.x-6,p.y-8,12,8,'#2b4c7e'); px(p.x-7,p.y-2,14,2,'#20395e'); px(p.x-4,p.y-8,1,8,'#0e2340'); px(p.x,p.y-8,1,8,'#0e2340'); px(p.x+4,p.y-8,1,8,'#0e2340'); }
 function drawDistanceSign(ang,m){ const p=ovalOffsetPos(ang,14); px(p.x-8,p.y-10,16,8,'#ff6b6b'); tinyText(String(m),p.x,p.y-6,'#ffffff','center'); px(p.x-1,p.y-10,2,10,'#c0392b'); }
 function px(x,y,w,h,c){ ctx.fillStyle=c; ctx.fillRect(x,y,w,h); }
@@ -412,16 +506,17 @@ const HORSE_SPR=["....BBBBBBBB....","...BBBBBBBBBB...","..BBBBBBBBBBBB..","..BBB
 const JOCKEY_SPR=["..WW.",".WGW.",".WWW.","..W.."];
 function drawHorseSprite(x,y,color){ for(let j=0;j<HORSE_SPR.length;j++) for(let i=0;i<HORSE_SPR[j].length;i++){ const ch=HORSE_SPR[j][i]; if(ch==='B') px(x+i,y+j,1,1,color); else if(ch==='Y') px(x+i,y+j,1,1,'#2a1a0a'); } for(let j=0;j<JOCKEY_SPR.length;j++) for(let i=0;i<JOCKEY_SPR[j].length;i++){ const ch=JOCKEY_SPR[j][i]; if(ch==='W') px(x+3+i,y-4+j,1,1,'#ffeaa7'); else if(ch==='G') px(x+3+i,y-4+j,1,1,'#6C5CE7'); } }
 
-// ===== 좌표/보조 (중복 선언 금지 — 이 블록은 단 한 번!)
+// ===== 좌표/보조 (중복 금지)
 function ovalOffsetPos(theta,offset){ const px0=RX*Math.cos(theta), py0=RY*Math.sin(theta); const tx=-RX*Math.sin(theta), ty=RY*Math.cos(theta); let nx=ty, ny=-tx; const len=Math.hypot(nx,ny)||1; nx/=len; ny/=len; return { x:CX+px0+nx*offset, y:CY+py0+ny*offset }; }
 function angleFromDist(dist){ return normAngle(FINISH_ANG - 2*Math.PI*(raceMeters/lapMeters) + (2*Math.PI)*(dist/lapMeters)); }
 function normAngle(a){ while(a<=-Math.PI) a+=2*Math.PI; while(a>Math.PI) a-=2*Math.PI; return a; }
 function syncControls(){ const canBet=(phase==='betting'||phase==='closing'); [btnAdd,selType,pickA,pickB,pickC,amount].forEach(el=>el.disabled=!canBet); const canStart=!(phase==='running'||phase==='result'||phase==='parade'||phase==='intermission'); btnStart.disabled=!canStart; }
 function renderHistory(){ if(!history.length){ historyEl.innerHTML='<div class="hint">아직 기록이 없어요.</div>'; return; } historyEl.innerHTML=history.map(h=>{ const sign=h.pnl>=0?'color:var(--good)':'color:var(--bad)'; return `<div class="row small"><div class="pill">R${h.raceNo}</div><div>${h.time}</div><div>${h.meters||'?'}m / ${h.field||'?'}두</div><div>1-3위: #${(h.order[0]??-1)+1} / #${(h.order[1]??-1)+1} / #${(h.order[2]??-1)+1}</div><div>베팅 ${fmt(h.totalBet||0)}원 → 환급 ${fmt(h.totalReturn||0)}원</div><div style="${sign}">손익 ${fmt(h.pnl||0)}원</div></div>`; }).join(''); }
+
 })();
 </script>
 
-<!-- Firebase 모듈 (async IIFE로 감싸서 최상위 await 오류 제거) -->
+<!-- Firebase 모듈 (리전 고정 + async IIFE) -->
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js';
 import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
@@ -440,11 +535,12 @@ import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/
     appId:"1:710116433234:web:7d0e4ba9ddd1b13be72e8b",
     measurementId:"G-MTKTT6KRVP"
   };
+
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
-  await setPersistence(auth, browserLocalPersistence);   // 영구 로그인
+  await setPersistence(auth, browserLocalPersistence);     // 영구 로그인
   const db = getFirestore(app);
-  const functions = getFunctions(app);                   // 리전 썼다면 getFunctions(app,'asia-northeast3')
+  const functions = getFunctions(app, 'asia-northeast3');  // 리전 고정!
   try{ await enableIndexedDbPersistence(db); }catch(_){}
 
   // DOM
@@ -465,16 +561,13 @@ import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/
   let localWallet=Number(localStorage.getItem('wallet')||100000);
   if(!Number.isFinite(localWallet)||localWallet<=0) localWallet=100000;
 
-  // 게임과 지갑 연동
   window.firebaseWallet={
     add:async (delta)=>{
       if(!uid){ localWallet=Math.max(0,localWallet+delta); localStorage.setItem('wallet',localWallet); window.gameWallet?.setFromCloud(localWallet); return; }
       const ref=doc(db,'users',uid);
       await updateDoc(ref,{ wallet:increment(delta), updatedAt:serverTimestamp() })
-        .catch(async ()=>{
-          await setDoc(ref,{ wallet:localWallet??100000, updatedAt:serverTimestamp() },{merge:true});
-          await updateDoc(ref,{ wallet:increment(delta), updatedAt:serverTimestamp() });
-        });
+        .catch(async ()=>{ await setDoc(ref,{ wallet:localWallet??100000, updatedAt:serverTimestamp() },{merge:true});
+                            await updateDoc(ref,{ wallet:increment(delta), updatedAt:serverTimestamp() }); });
     },
     set:async (value)=>{
       if(!uid){ localWallet=Math.max(0,Number(value)||0); localStorage.setItem('wallet',localWallet); window.gameWallet?.setFromCloud(localWallet); return; }
@@ -484,11 +577,9 @@ import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/
     get:()=>localWallet
   };
 
-  // Functions
-  const callDaily = httpsCallable(functions,'walletTopupDaily');    // 10,000원
-  const callCoupon= httpsCallable(functions,'walletRedeemCoupon');  // 쿠폰
+  const callDaily = httpsCallable(functions,'walletTopupDaily');     // 하루 1회 10,000원
+  const callCoupon= httpsCallable(functions,'walletRedeemCoupon');   // 쿠폰
 
-  // 로그인 상태
   let unsubWallet=null;
   onAuthStateChanged(auth, async (user)=>{
     if(unsubWallet){ unsubWallet(); unsubWallet=null; }
@@ -503,6 +594,7 @@ import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/
       const snap=await getDoc(ref);
       if(!snap.exists()) await setDoc(ref,{ wallet:localWallet??100000, updatedAt:serverTimestamp() },{merge:true});
       unsubWallet=onSnapshot(ref,(s)=>{ const d=s.data()||{}; if(typeof d.wallet==='number'){ localWallet=d.wallet; localStorage.setItem('wallet',localWallet); window.gameWallet?.setFromCloud(localWallet);} });
+
       updateDailyHintClient();
     }else{
       uid=null;
@@ -515,20 +607,20 @@ import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/
     }
   });
 
-  // 버튼
   btnSignup.onclick=async ()=>{ const email=emailEl.value.trim(); const pw=passwordEl.value.trim(); if(!email||!pw) return alert('이메일/비번 입력!'); try{ await createUserWithEmailAndPassword(auth,email,pw); }catch(e){ alert('회원가입 실패: '+e.message);} };
   btnLogin.onclick=async ()=>{ const email=emailEl.value.trim(); const pw=passwordEl.value.trim(); if(!email||!pw) return alert('이메일/비번 입력!'); try{ await signInWithEmailAndPassword(auth,email,pw); }catch(e){ alert('로그인 실패: '+e.message);} };
   btnLogout.onclick=async ()=>{ try{ await signOut(auth); localStorage.removeItem('wallet'); location.replace(location.pathname+'?v=logout'); }catch(_){} };
 
-  btnDaily.onclick=async ()=>{ if(!uid) return alert('로그인해줘!'); try{ const res=await callDaily({}); if(res.data?.ok){ dailyHint.textContent='지급 완료! 잠시 후 잔액 반영'; } }catch(e){ // 테스트 폴백(운영 시 제거 권장)
-      try{ await claimDailyClient(); }catch(e2){ alert(e.message||e2.message||'보너스 수령 실패'); } } };
+  btnDaily.onclick=async ()=>{ if(!uid) return alert('로그인해줘!'); try{ const res=await callDaily({}); if(res.data?.ok){ dailyHint.textContent='지급 완료! 잠시 후 잔액 반영'; } }catch(e){ try{ await claimDailyClient(); }catch(e2){ alert(e.message||e2.message||'보너스 수령 실패'); } } };
 
-  btnCoupon.onclick=async ()=>{ if(!uid) return alert('로그인해줘!'); const code=(couponInput.value||'').trim(); if(!code) return alert('쿠폰 코드를 입력해줘!'); try{ const res=await callCoupon({code}); if(res.data?.ok){ couponHint.textContent='쿠폰 지급 완료! 잔액 반영'; couponInput.value=''; } else alert('쿠폰 실패'); }catch(e){ alert(e.message||'쿠폰 실패'); } };
+  btnCoupon.onclick=async ()=>{ if(!uid) return alert('로그인해줘!'); const code=(couponInput.value||'').trim().toUpperCase(); if(!code) return alert('쿠폰 코드를 입력해줘!');
+    try{ const res=await callCoupon({ code }); if(res.data?.ok){ couponHint.textContent='쿠폰 지급 완료! 잔액 반영'; couponInput.value=''; } else { alert('쿠폰 실패'); } }
+    catch(e){ console.error('coupon error:',e); alert(e.message||'쿠폰 실패'); }
+  };
 
-  // 테스트 폴백(10,000원)
+  // 테스트 폴백(운영 제거 권장)
   async function claimDailyClient(){
-    const ref=doc(db,'users',uid); const snap=await getDoc(ref); const data=snap.data()||{};
-    const last=data.lastClaimAt?.toMillis?.()||0; const now=Date.now(); const DAY=24*60*60*1000; const left=Math.max(0,DAY-(now-last));
+    const ref=doc(db,'users',uid), snap=await getDoc(ref), data=snap.data()||{}, last=data.lastClaimAt?.toMillis?.()||0, now=Date.now(), DAY=24*60*60*1000, left=Math.max(0,DAY-(now-last));
     if(left>0){ const h=Math.ceil(left/3600000); dailyHint.textContent=`다음 보너스까지 약 ${h}시간`; throw new Error('아직 24시간이 안 지났어'); }
     await window.firebaseWallet.add(10000);
     await setDoc(ref,{ lastDailyBonusAt:serverTimestamp(), lastClaimAt:serverTimestamp(), updatedAt:serverTimestamp() },{merge:true});
