@@ -38,7 +38,7 @@
   .modal .box{width:min(520px,92vw);background:#0f1424;border:1px solid #1f2940;border-radius:12px;padding:14px}
   .modal .row{margin-top:8px}
   .hl{border-color:#ff6b6b!important;box-shadow:0 0 0 2px rgba(255,107,107,.25)}
-  /* 모달이 닫혀있을 때 클릭 막힘 방지(안전) */
+  /* 닫힌 모달이 클릭 가로채지 않도록 */
   #chargeModal[style*="display: none"]{pointer-events:none}
 </style>
 </head>
@@ -133,7 +133,7 @@
   </div>
 
   <!-- 충전 모달 -->
-  <div id="chargeModal" class="modal" style="display:none;">
+  <div id="chargeModal" class="modal">
     <div class="box">
       <div class="row">
         <div class="pill">충전하기</div>
@@ -270,12 +270,11 @@ betTypeEl.addEventListener('change',refreshPickHighlight);
 });
 refreshPickHighlight();
 
-/* ========= 베팅 추가(안전) ========= */
+/* ========= 베팅 추가(안정화) ========= */
 btnAdd.onclick = () => {
   try {
     if (!(phase === 'betting' || phase === 'closing')) {
-      alert('지금은 베팅이 마감되었어! 다음 경주를 기다려줘.');
-      return;
+      alert('지금은 베팅이 마감되었어! 다음 경주를 기다려줘.'); return;
     }
     const t = selType.value;
     const a = parseInt(pickA.value, 10) - 1;
@@ -309,7 +308,7 @@ btnAdd.onclick = () => {
 };
 
 btnStart.onclick=()=>{ if(phase==='running'||phase==='parade'||phase==='intermission') return; startRace(); };
-btnNew.onclick=()=>{ if(phase==='running'||phase==='parade'){ if(!confirm('진행 중 경주 포기 후 새 편성?')) return; } raceNo+=1; raceNoEl.textContent=raceNo; localStorage.setItem('raceNo',raceNo); newRace(); };
+btnNew.onclick=()=>{ if(phase==='running'||phase==='parade'){ if(!confirm('진행 중 경주를 포기하고 새 편성?')) return; } raceNo+=1; raceNoEl.textContent=raceNo; localStorage.setItem('raceNo',raceNo); newRace(); };
 btnCharge.onclick=()=>{ chargeModal.style.display='flex'; };
 btnCloseCharge.onclick=()=>{ chargeModal.style.display='none'; };
 
@@ -320,7 +319,6 @@ function newRace(){
   running=false; paradeTimer=0; finishedOrder.length=0; time=0; lastCastTick=0;
   resultEl.textContent=''; payoutsEl.innerHTML=''; commentaryEl.innerHTML='';
   userTickets=[]; rebuildTickets(); stopGallop(); stopCrowd();
-
   weather=rollWeather();
   castFlags={q1:false,q2:false,q3:false}; lastLeader=null;
   addCast(`오늘 날씨는 ${weather.icon} ${weather.kind} 입니다.`);
@@ -507,6 +505,7 @@ function computePayouts(order){
   const pqOn=keysPQ.reduce((s,k)=>s+(pools.placeq[k]||0),0)||0.001; const pqRate=(pqTotal*(1-TAKE))/pqOn;
   const trioTotal=sumObj(pools.trio); const keyT=sortedKey(first,second,third); const trioRate=(trioTotal*(1-TAKE))/(pools.trio[keyT]||0.001);
   const trifTotal=sumObj(pools.trifecta); const keyTf=`${first}>${second}>${third}`; const trifRate=(trifTotal*(1-TAKE))/(pools.trifecta[keyTf]||0.001);
+
   const safe=v=>(isFinite(v)&&v>0)?v:0; // 안전 가드
   return { win:safe(winRate), place:[safe(p1),safe(p2),safe(p3)], quin:safe(quinRate), exact:safe(exactRate), placeq:safe(pqRate), trio:safe(trioRate), trifecta:safe(trifRate) };
 }
@@ -537,7 +536,7 @@ function renderPayoutDetails(pay,order){
   </tbody></table>`; payoutsEl.innerHTML+=html;
 }
 
-/* ========= 정산 개별 티켓 ========= */
+/* ========= 티켓 정산 ========= */
 function settleTicket(t, order, pay){
   const first=order[0], second=order[1], third=order[2];
   const safeMul = (amt, od)=> Math.max(0, Math.floor(amt * Math.max(1, (isFinite(od)? od : 0))));
@@ -619,7 +618,13 @@ function draw(){
 
   ctx.restore();
 }
-function drawTrack(){ ctx.fillStyle='#7a3e1d'; ctx.beginPath(); ctx.ellipse(CX,CY,RX,RY,0,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#0e6a2b'; ctx.beginPath(); ctx.ellipse(CX,CY,RX-LANE_W,RY-LANE_W,0,0,Math.PI*2); ctx.fill(); ctx.globalCompositeOperation='destination-over'; ctx.fillStyle='#0f5c26'; ctx.beginPath(); ctx.ellipse(CX,CY,RX+6,RY+6,0,0,Math.PI*2); ctx.fill(); ctx.globalCompositeOperation='source-over'; ctx.strokeStyle='#ffffff'; ctx.lineWidth=1; ctx.beginPath(); ctx.ellipse(CX,CY,RX-2,RY-2,0,0,Math.PI*2); ctx.stroke(); ctx.beginPath(); ctx.ellipse(CX,CY,RX-LANE_W+2,RY-LANE_W+2,0,0,Math.PI*2); ctx.stroke(); }
+function drawTrack(){ ctx.fillStyle='#7a3e1d'; ctx.beginPath(); ctx.ellipse(CX,CY,RX,RY,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#0e6a2b'; ctx.beginPath(); ctx.ellipse(CX,CY,RX-LANE_W,RY-LANE_W,0,0,Math.PI*2); ctx.fill();
+  ctx.globalCompositeOperation='destination-over'; ctx.fillStyle='#0f5c26'; ctx.beginPath(); ctx.ellipse(CX,CY,RX+6,RY+6,0,0,Math.PI*2); ctx.fill();
+  ctx.globalCompositeOperation='source-over'; ctx.strokeStyle='#ffffff'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.ellipse(CX,CY,RX-2,RY-2,0,0,Math.PI*2); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(CX,CY,RX-LANE_W+2,RY-LANE_W+2,0,0,Math.PI*2); ctx.stroke();
+}
 function drawFinishPost(ang){ const p=ovalOffsetPos(ang,-6); px(p.x-1,p.y-14,3,14,'#e63946'); ctx.beginPath(); ctx.fillStyle='#e63946'; ctx.arc(p.x+0.5,p.y-16,5,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.fillStyle='#ffffff'; ctx.arc(p.x+0.5,p.y-16,3,0,Math.PI*2); ctx.fill(); }
 function drawGate(ang){ const p=ovalOffsetPos(ang,-4); px(p.x-6,p.y-8,12,8,'#2b4c7e'); px(p.x-7,p.y-2,14,2,'#20395e'); px(p.x-4,p.y-8,1,8,'#0e2340'); px(p.x,p.y-8,1,8,'#0e2340'); px(p.x+4,p.y-8,1,8,'#0e2340'); }
 function drawDistanceSign(ang,m){ const p=ovalOffsetPos(ang,14); px(p.x-8,p.y-10,16,8,'#ff6b6b'); tinyText(String(m),p.x,p.y-6,'#ffffff','center'); px(p.x-1,p.y-10,2,10,'#c0392b'); }
@@ -665,9 +670,9 @@ import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/
 
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
-  await setPersistence(auth, browserLocalPersistence);
+  await setPersistence(auth, browserLocalPersistence);     // 영구 로그인
   const db = getFirestore(app);
-  const functions = getFunctions(app, 'asia-northeast3'); // 리전 고정
+  const functions = getFunctions(app, 'asia-northeast3');  // 리전 고정
   try{ await enableIndexedDbPersistence(db); }catch(_){}
 
   // DOM
@@ -688,7 +693,7 @@ import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/
   let localWallet=Number(localStorage.getItem('wallet')||100000);
   if(!Number.isFinite(localWallet)||localWallet<=0) localWallet=100000;
 
-  // 지갑 API
+  // 지갑 API(게임과 연동)
   window.firebaseWallet={
     add:async (delta)=>{
       if(!uid){ localWallet=Math.max(0,localWallet+delta); localStorage.setItem('wallet',localWallet); window.gameWallet?.setFromCloud(localWallet); return; }
@@ -708,7 +713,7 @@ import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/
   };
 
   // Functions
-  const callDaily = httpsCallable(functions,'walletTopupDaily');     // 10,000원
+  const callDaily = httpsCallable(functions,'walletTopupDaily');     // 하루 1회 10,000원
   const callCoupon= httpsCallable(functions,'walletRedeemCoupon');   // 쿠폰
 
   let unsubWallet=null;
